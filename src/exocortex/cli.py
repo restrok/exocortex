@@ -289,15 +289,35 @@ def rebuild() -> None:
 
 
 @repair_app.command("report")
-def repair_report() -> None:
+def repair_report(
+    mode: Annotated[
+        str | None,
+        typer.Option("--mode", "-m", help="Repair mode: daily, full, or disabled"),
+    ] = None,
+) -> None:
     """Report deterministic data repairs without changing the Vault."""
-    _emit_response("ok", "repair-report", _service().repair_report())
+    service = _service()
+    try:
+        report = service.repair_report(mode=mode)
+    except TypeError:
+        report = service.repair_report()
+    _emit_response("ok", "repair-report", report)
 
 
 @repair_app.command("apply")
-def repair_apply() -> None:
+def repair_apply(
+    mode: Annotated[
+        str | None,
+        typer.Option("--mode", "-m", help="Repair mode: daily, full, or disabled"),
+    ] = None,
+) -> None:
     """Back up and apply deterministic data repairs."""
-    _emit_response("ok", "repair-apply", _service().repair_apply())
+    service = _service()
+    try:
+        result = service.repair_apply(mode=mode)
+    except TypeError:
+        result = service.repair_apply()
+    _emit_response("ok", "repair-apply", result)
 
 
 @repair_app.command("rollback")

@@ -8,7 +8,9 @@ import logging
 import re
 import shutil
 import tarfile
+import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -29,8 +31,19 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def repair_report(service: BrainService) -> dict[str, object]:
+def repair_report(
+    service: BrainService,
+    mode: str | None = None,
+    fuzzy_timeout_seconds: float | None = None,
+) -> dict[str, object]:
     """Return deterministic path, state, and duplicate repair candidates."""
+    effective_mode = mode or getattr(service.settings, "repair_mode", "daily")
+    fuzzy = effective_mode == "full"
+    timeout = (
+        fuzzy_timeout_seconds
+        if fuzzy_timeout_seconds is not None
+        else getattr(service.settings, "repair_fuzzy_timeout_seconds", 15.0)
+    )
     notes = list(service.vault.iter_notes())
     moves: list[dict[str, str]] = []
     state_changes: list[dict[str, str]] = []
@@ -57,8 +70,9 @@ def repair_report(service: BrainService) -> dict[str, object]:
                     "to": desired_state,
                 }
             )
-    duplicates = _duplicate_notes(notes)
+    duplicates = _duplicate_notes(notes, fuzzy=fuzzy, timeout_seconds=timeout)
     return {
+        "repair_mode": effective_mode,
         "status": "ok",
         "notes": len(notes),
         "moves": moves,
@@ -68,9 +82,15 @@ def repair_report(service: BrainService) -> dict[str, object]:
     }
 
 
-def repair_apply(service: BrainService) -> dict[str, object]:
+def repair_apply(
+    service: BrainService,
+    mode: str | None = None,
+    fuzzy_timeout_seconds: float | None = None,
+) -> dict[str, object]:
     """Backup and apply deterministic repairs without deleting ambiguous notes."""
-    report = repair_report(service)
+    report = repair_report(
+        service, mode=mode, fuzzy_timeout_seconds=fuzzy_timeout_seconds
+    )
     backup = _create_backup(service, report)
     moved = 0
     changed = 0
@@ -795,16 +815,29 @@ def _safe_identifier_text(service: BrainService, value: str) -> str:
 
 def _duplicate_workflows(notes: list[object]) -> list[dict[str, str]]:
     """Find conservative duplicates among workflows for compatibility."""
-    return _duplicate_notes(notes, note_types={"workflow"})
+    return _duplicate_notes(notes, note_types={"workflow"}, fuzzy=True)
+
+
+@dataclass
+class _NoteProfile:
+    note: object
+    key: str
+    norm_title: str
+    title_len: int
+    labels_set: set[str]
 
 
 def _duplicate_notes(
     notes: list[object],
     note_types: set[str] | None = None,
+    fuzzy: bool = True,
+    timeout_seconds: float | None = 15.0,
 ) -> list[dict[str, str]]:
-    """Find exact duplicates and quarantine ambiguous near-duplicates."""
+    """Find exact duplicates and optionally quarantine ambiguous near-duplicates."""
     canonical: dict[str, object] = {}
     duplicates: list[dict[str, str]] = []
+    superseded_ids: set[str] = set()
+
     candidates = sorted(
         (
             note
@@ -818,10 +851,23 @@ def _duplicate_notes(
         ),
         key=lambda note: note.metadata.created_at,
     )
+
+    # 1. Precompute profiles in O(N) pass, detecting exact duplicates instantly
+    profiles: list[_NoteProfile] = []
     for note in candidates:
         key = _duplicate_key(note)
         if key not in canonical:
             canonical[key] = note
+            norm_title = _normalize_title(note.metadata.title)
+            profiles.append(
+                _NoteProfile(
+                    note=note,
+                    key=key,
+                    norm_title=norm_title,
+                    title_len=len(norm_title),
+                    labels_set=set(note.metadata.labels + note.metadata.manual_labels),
+                )
+            )
             continue
         duplicates.append(
             {
@@ -830,47 +876,91 @@ def _duplicate_notes(
                 "action": "supersede",
             }
         )
-    for index, note in enumerate(candidates):
-        for other in candidates[index + 1 :]:
-            if _duplicate_key(note) == _duplicate_key(other):
+        superseded_ids.add(str(note.metadata.id))
+
+    if not fuzzy:
+        return duplicates
+
+    # 2. Optimized fuzzy deduplication
+    start_time = time.monotonic()
+    by_type: dict[str, list[_NoteProfile]] = {}
+    for p in profiles:
+        by_type.setdefault(p.note.metadata.type, []).append(p)
+
+    timed_out = False
+    for note_type, group in by_type.items():
+        if timed_out:
+            break
+        for index, p1 in enumerate(group):
+            if str(p1.note.metadata.id) in superseded_ids:
                 continue
-            title_ratio = SequenceMatcher(
-                None,
-                _normalize_title(note.metadata.title),
-                _normalize_title(other.metadata.title),
-            ).ratio()
-            labels_a = set(note.metadata.labels + note.metadata.manual_labels)
-            labels_b = set(other.metadata.labels + other.metadata.manual_labels)
-            union = labels_a | labels_b
-            label_ratio = len(labels_a & labels_b) / len(union) if union else 0.0
-            if (
-                title_ratio >= 0.9
-                and label_ratio >= 0.5
-                and note.metadata.type == other.metadata.type
-            ):
-                older, newer = sorted(
-                    (note, other), key=lambda item: item.metadata.created_at
+            if timeout_seconds and (time.monotonic() - start_time) > timeout_seconds:
+                _LOGGER.warning(
+                    "Fuzzy duplicate search budget reached timeout=%.1fs type=%s",
+                    timeout_seconds,
+                    note_type,
                 )
-                duplicates.append(
-                    {
-                        "duplicate_id": str(newer.metadata.id),
-                        "canonical_id": str(older.metadata.id),
-                        "action": "supersede",
-                        "reason": "near_identical_title_and_scope",
-                    }
+                timed_out = True
+                break
+
+            len1 = p1.title_len
+            title1 = p1.norm_title
+            note1 = p1.note
+
+            for p2 in group[index + 1 :]:
+                if str(p2.note.metadata.id) in superseded_ids:
+                    continue
+                if p1.key == p2.key:
+                    continue
+
+                len2 = p2.title_len
+                min_len, max_len = (len1, len2) if len1 < len2 else (len2, len1)
+                if max_len > 0 and (min_len / max_len) < 0.8:
+                    continue
+
+                matcher = SequenceMatcher(None, title1, p2.norm_title)
+                if matcher.real_quick_ratio() < 0.8:
+                    continue
+                if matcher.quick_ratio() < 0.8:
+                    continue
+
+                title_ratio = matcher.ratio()
+                if title_ratio < 0.8:
+                    continue
+
+                union = p1.labels_set | p2.labels_set
+                label_ratio = (
+                    len(p1.labels_set & p2.labels_set) / len(union)
+                    if union
+                    else 0.0
                 )
-            elif (
-                0.8 <= title_ratio < 0.9
-                and note.metadata.type == other.metadata.type
-            ):
-                duplicates.append(
-                    {
-                        "duplicate_id": str(other.metadata.id),
-                        "canonical_id": str(note.metadata.id),
-                        "action": "quarantine",
-                        "reason": "ambiguous_near_duplicate",
-                    }
-                )
+                note2 = p2.note
+
+                if title_ratio >= 0.9 and label_ratio >= 0.5:
+                    older, newer = (
+                        (note1, note2)
+                        if note1.metadata.created_at <= note2.metadata.created_at
+                        else (note2, note1)
+                    )
+                    duplicates.append(
+                        {
+                            "duplicate_id": str(newer.metadata.id),
+                            "canonical_id": str(older.metadata.id),
+                            "action": "supersede",
+                            "reason": "near_identical_title_and_scope",
+                        }
+                    )
+                    superseded_ids.add(str(newer.metadata.id))
+                elif 0.8 <= title_ratio < 0.9:
+                    duplicates.append(
+                        {
+                            "duplicate_id": str(note2.metadata.id),
+                            "canonical_id": str(note1.metadata.id),
+                            "action": "quarantine",
+                            "reason": "ambiguous_near_duplicate",
+                        }
+                    )
+
     return duplicates
 
 

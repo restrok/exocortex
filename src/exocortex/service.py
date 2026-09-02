@@ -1002,17 +1002,33 @@ class BrainService:
         )
         return len(notes)
 
-    def repair_report(self) -> dict[str, object]:
+    def repair_report(
+        self,
+        mode: str | None = None,
+        fuzzy_timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
         """Return deterministic canonical-vault repair candidates."""
         from exocortex.maintenance import repair_report
 
-        return repair_report(self)
+        return repair_report(
+            self,
+            mode=mode,
+            fuzzy_timeout_seconds=fuzzy_timeout_seconds,
+        )
 
-    def repair_apply(self) -> dict[str, object]:
+    def repair_apply(
+        self,
+        mode: str | None = None,
+        fuzzy_timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
         """Backup and apply deterministic canonical-vault repairs."""
         from exocortex.maintenance import repair_apply
 
-        return repair_apply(self)
+        return repair_apply(
+            self,
+            mode=mode,
+            fuzzy_timeout_seconds=fuzzy_timeout_seconds,
+        )
 
     def repair_rollback(self, backup: Path) -> dict[str, object]:
         """Restore canonical data from an explicit repair backup."""
