@@ -118,6 +118,28 @@ def ingest_codex(
     _emit_response("ok", "ingest-codex", [result.__dict__ for result in results])
 
 
+@app.command("ingest-antigravity")
+def ingest_antigravity(
+    transcripts_root: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    space: Annotated[str | None, typer.Option()] = None,
+    extract: Annotated[bool, typer.Option()] = True,
+    max_llm_calls: Annotated[int | None, typer.Option(min=0)] = None,
+    max_seconds: Annotated[int | None, typer.Option(min=0)] = None,
+    batch_size: Annotated[int | None, typer.Option(min=1, max=50)] = None,
+) -> None:
+    """Ingest local Antigravity transcripts with bounded, resumable extraction."""
+    service = _service()
+    results = service.ingest_antigravity(
+        transcripts_root=transcripts_root,
+        extract=extract,
+        space_id=space,
+        max_llm_calls=max_llm_calls,
+        max_seconds=max_seconds,
+        batch_size=batch_size,
+    )
+    _emit_response("ok", "ingest-antigravity", [result.__dict__ for result in results])
+
+
 @app.command()
 def sync(
     embed: Annotated[bool, typer.Option()] = True,
@@ -778,3 +800,49 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+@config_app.command("install-antigravity")
+def config_install_antigravity(
+    mcp_url: Annotated[str, typer.Option()] = "http://127.0.0.1:8765/mcp",
+    skill_source: Annotated[Path, typer.Option()] = Path(
+        "integrations/antigravity/exocortex"
+    ),
+) -> None:
+    """Install the Exocortex skill and MCP registration for Google Antigravity."""
+    skill_path = skill_source / "SKILL.md"
+    if not skill_path.is_file():
+        raise typer.BadParameter(f"Skill file does not exist: {skill_path}")
+
+    home = Path.home()
+    skill_target = home / ".gemini" / "config" / "skills" / "exocortex"
+    skill_target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(skill_path, skill_target / "SKILL.md")
+
+    mcp_config_path = home / ".gemini" / "config" / "mcp_config.json"
+    mcp_config_path.parent.mkdir(parents=True, exist_ok=True)
+    _register_antigravity_mcp(mcp_config_path, mcp_url)
+
+    typer.echo("Installed the Exocortex skill and Antigravity MCP registration.")
+
+
+def _register_antigravity_mcp(config_path: Path, mcp_url: str) -> None:
+    """Register the Exocortex MCP server in Antigravity mcp_config.json."""
+    config: dict[str, object] = {}
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            config = {}
+    if not isinstance(config, dict):
+        config = {}
+
+    mcp_servers = config.setdefault("mcpServers", {})
+    if not isinstance(mcp_servers, dict):
+        mcp_servers = {}
+        config["mcpServers"] = mcp_servers
+
+    mcp_servers["exocortex"] = {
+        "serverUrl": mcp_url,
+    }
+    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+

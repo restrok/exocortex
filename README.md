@@ -324,6 +324,28 @@ Restart Claude Code after installation so it loads the skill. Codex and Claude
 share the same local Vault, Neo4j projection, MCP endpoint, and observability
 stack; no second ingestion or database is created.
 
+### Google Antigravity Integration
+
+Google Antigravity connects to Exocortex via its native Model Context Protocol (MCP) and Skills architecture.
+
+Install the skill and register the MCP server for Antigravity with:
+
+~~~
+exocortexctl config install-antigravity
+~~~
+
+This command:
+1. Installs the `exocortex` skill to `~/.gemini/config/skills/exocortex/SKILL.md`.
+2. Registers `http://127.0.0.1:8765/mcp` as an active MCP server in `~/.gemini/config/mcp_config.json`.
+
+To ingest Antigravity session transcripts with bounded, resumable extraction:
+
+~~~
+exocortexctl ingest-antigravity --transcripts-root ~/.gemini/antigravity/brain --space work
+~~~
+
+All coding assistants (Antigravity, Codex, Claude Code) share the same local Vault, Neo4j projection, and MCP endpoint.
+
 ## Operations
 
 Run commands inside the Brain container after the stack is up.

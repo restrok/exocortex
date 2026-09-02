@@ -14,6 +14,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 from exocortex.actions import canonicalize_action_key
+from exocortex.antigravity_sessions import AntigravitySessionAdapter
 from exocortex.codex_sessions import CodexSessionAdapter
 from exocortex.config import Settings
 from exocortex.gateway import REFLECTION_PROMPT_VERSION, GatewayClient
@@ -186,6 +187,64 @@ class BrainService:
             space_id or self.settings.default_space,
             closed_after_seconds=self.settings.session_closed_after_seconds,
         )
+        return self._ingest_sessions(
+            adapter,
+            root,
+            self._load_codex_ingest_checkpoint,
+            self._persist_codex_ingest_progress,
+            extract=extract,
+            only_closed=only_closed,
+            max_llm_calls=max_llm_calls,
+            max_seconds=max_seconds,
+            batch_size=batch_size,
+        )
+
+    @traced("exocortex.ingest_antigravity")
+    def ingest_antigravity(
+        self,
+        transcripts_root: Path | None = None,
+        extract: bool = True,
+        only_closed: bool = False,
+        space_id: str | None = None,
+        max_llm_calls: int | None = None,
+        max_seconds: int | None = None,
+        batch_size: int | None = None,
+    ) -> list[IngestResult]:
+        """Ingest Antigravity transcripts with resumable, bounded extraction."""
+        root = Path(
+            transcripts_root
+            or (Path.home() / ".gemini" / "antigravity" / "brain")
+        )
+        adapter = AntigravitySessionAdapter(
+            root,
+            space_id or self.settings.default_space,
+            closed_after_seconds=self.settings.session_closed_after_seconds,
+        )
+        return self._ingest_sessions(
+            adapter,
+            root,
+            self._load_antigravity_ingest_checkpoint,
+            self._persist_antigravity_ingest_progress,
+            extract=extract,
+            only_closed=only_closed,
+            max_llm_calls=max_llm_calls,
+            max_seconds=max_seconds,
+            batch_size=batch_size,
+        )
+
+    def _ingest_sessions(
+        self,
+        adapter: object,
+        root: Path,
+        checkpoint_loader: object,
+        checkpoint_saver: object,
+        extract: bool = True,
+        only_closed: bool = False,
+        max_llm_calls: int | None = None,
+        max_seconds: int | None = None,
+        batch_size: int | None = None,
+    ) -> list[IngestResult]:
+        """Ingest session records with resumable, bounded extraction."""
         max_llm_calls = (
             self.settings.ingest_max_llm_calls
             if max_llm_calls is None
@@ -202,7 +261,7 @@ class BrainService:
                 "Ingestion limits must be non-negative and batch size positive."
             )
         paths = adapter.session_paths(only_closed=only_closed)
-        checkpoint = self._load_codex_ingest_checkpoint(root)
+        checkpoint = checkpoint_loader(root)
         session_state = checkpoint["sessions"]
         started_monotonic = time.monotonic()
         started_wall = time.time()
@@ -269,7 +328,7 @@ class BrainService:
             summary["sessions_pending"] = max(len(paths) - completed, 0)
 
         refresh_pending_sessions()
-        self._persist_codex_ingest_progress(checkpoint, summary)
+        checkpoint_saver(checkpoint, summary)
         _LOGGER.info(
             "Ingest started sessions_total=%d pending_sessions=%d "
             "skipped_sessions=%d only_closed=%s",
@@ -312,7 +371,7 @@ class BrainService:
                     "failed_at": datetime.now(UTC).isoformat(),
                 }
                 refresh_pending_sessions()
-                self._persist_codex_ingest_progress(checkpoint, summary)
+                checkpoint_saver(checkpoint, summary)
                 continue
 
             _LOGGER.info(
@@ -357,7 +416,7 @@ class BrainService:
                         "brain.ingest.lifecycle_state": "pending",
                     },
                 ):
-                    self._persist_codex_ingest_progress(checkpoint, summary)
+                    checkpoint_saver(checkpoint, summary)
 
             def process_batch(
                 items: list[tuple[int, SourceRecord, str, bool]],
@@ -549,7 +608,7 @@ class BrainService:
                 else:
                     persist_partial()
             refresh_pending_sessions()
-            self._persist_codex_ingest_progress(checkpoint, summary)
+            checkpoint_saver(checkpoint, summary)
             _LOGGER.info(
                 "Ingest session checkpointed session=%d/%d path=%s records=%d "
                 "processed=%d failed=%d fallback=%d pending_sessions=%d",
@@ -577,7 +636,7 @@ class BrainService:
         summary["completed_at"] = datetime.now(UTC).isoformat()
         self._last_ingest_summary = dict(summary)
         record_ingest_summary(summary)
-        self._persist_codex_ingest_progress(checkpoint, summary)
+        checkpoint_saver(checkpoint, summary)
         _LOGGER.info(
             "Ingest finished status=%s processed_sessions=%d skipped_sessions=%d "
             "records_processed=%d records_failed=%d pending_sessions=%d",
@@ -1996,6 +2055,49 @@ class BrainService:
             encoding="utf-8",
         )
         temporary_path.replace(path)
+
+    def _load_antigravity_ingest_checkpoint(self, root: Path) -> dict[str, object]:
+        """Load non-sensitive Antigravity ingestion progress."""
+        path = self._antigravity_ingest_checkpoint_path(root)
+        default: dict[str, object] = {
+            "version": 2,
+            "root_id": _sessions_root_id(root),
+            "sessions": {},
+        }
+        if not path.is_file():
+            return default
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                payload.setdefault("version", 2)
+                payload.setdefault("root_id", _sessions_root_id(root))
+                payload.setdefault("sessions", {})
+                return payload
+            return default
+        except (json.JSONDecodeError, OSError):
+            return default
+
+    def _persist_antigravity_ingest_progress(
+        self,
+        checkpoint: dict[str, object],
+        summary: dict[str, object],
+    ) -> None:
+        """Persist non-sensitive Antigravity ingestion state."""
+        root_id = str(checkpoint.get("root_id") or "default")
+        path = self.settings.state_dir / f"antigravity-ingest-checkpoint-{root_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint["last_run"] = dict(summary)
+        temporary_path = path.with_suffix(".tmp")
+        temporary_path.write_text(
+            json.dumps(checkpoint, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.replace(path)
+
+    def _antigravity_ingest_checkpoint_path(self, root: Path) -> Path:
+        """Return the checkpoint path for Antigravity transcripts root."""
+        root_id = _sessions_root_id(root)
+        return self.settings.state_dir / f"antigravity-ingest-checkpoint-{root_id}.json"
 
     def _load_codex_ingest_checkpoint(self, root: Path) -> dict[str, object]:
         """Load non-sensitive per-rollout ingestion progress."""
