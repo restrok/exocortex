@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Codex Brain
+    orgId: 1
+    folder: Codex Brain
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

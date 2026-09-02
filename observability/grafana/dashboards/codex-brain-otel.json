@@ -1,0 +1,177 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "codex-brain-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (brain_gateway_operation, brain_gateway_status) (last_over_time(codex_brain_gateway_requests_total[$__range]))",
+          "legendFormat": "{{brain_gateway_operation}} / {{brain_gateway_status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Gateway requests (latest cumulative values)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "codex-brain-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, brain_gateway_operation) (last_over_time(codex_brain_gateway_request_duration_seconds_bucket[$__range])))",
+          "legendFormat": "p95 {{brain_gateway_operation}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Gateway p95 latency (latest histogram)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "codex-brain-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (brain_ingest_outcome) (last_over_time(codex_brain_ingest_records_total[$__range]))",
+          "legendFormat": "{{brain_ingest_outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingest records (latest cumulative values)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "codex-brain-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(last_over_time(codex_brain_ingest_llm_calls_total[$__range]))",
+          "legendFormat": "LLM calls",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(last_over_time(codex_brain_sync_notes_total[$__range]))",
+          "legendFormat": "sync notes",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(last_over_time(codex_brain_reflect_notes_total[$__range]))",
+          "legendFormat": "reflect notes",
+          "refId": "C"
+        }
+      ],
+      "title": "Learning totals (latest cumulative values)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["codex-brain", "opentelemetry"],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "title": "Codex Brain - OpenTelemetry",
+  "uid": "codex-brain-otel",
+  "version": 1
+}

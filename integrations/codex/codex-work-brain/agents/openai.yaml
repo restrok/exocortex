@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Work Brain"
+  short_description: "Search and preserve work knowledge"
+  default_prompt: "Use $codex-work-brain to find grounded notes about prior work."
