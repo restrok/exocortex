@@ -51,6 +51,10 @@ class _FakeService:
         self.calls.append(("ingest_codex", kwargs))
         return [SimpleNamespace(source_id="session-1")]
 
+    def ingest_antigravity(self, **kwargs: object) -> list[object]:
+        self.calls.append(("ingest_antigravity", kwargs))
+        return [SimpleNamespace(source_id="session-ag-1")]
+
     def extraction_canary(self) -> dict[str, object]:
         return {"status": "passed", "validated_items": 1}
 
@@ -304,3 +308,52 @@ def test_cli_install_claude_is_idempotent_and_allows_memory_capture(
         (home / ".claude" / "settings.json").read_text(encoding="utf-8")
     )
     assert "mcp__codex-brain__brain_remember" in settings["permissions"]["allow"]
+
+def test_cli_install_antigravity_registers_mcp_and_skill(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Antigravity installation writes mcp_config.json and copies the skill."""
+    home = tmp_path / "home"
+    skill_source = tmp_path / "skill"
+    skill_source.mkdir()
+    (skill_source / "SKILL.md").write_text("antigravity skill", encoding="utf-8")
+    monkeypatch.setattr(cli.Path, "home", staticmethod(lambda: home))
+
+    cli.config_install_antigravity(skill_source=skill_source)
+
+    skill_target = home / ".gemini" / "config" / "skills" / "exocortex" / "SKILL.md"
+    assert skill_target.exists()
+    assert skill_target.read_text(encoding="utf-8") == "antigravity skill"
+
+    mcp_config = home / ".gemini" / "config" / "mcp_config.json"
+    assert mcp_config.exists()
+    data = json.loads(mcp_config.read_text(encoding="utf-8"))
+    assert data["mcpServers"]["exocortex"]["serverUrl"] == "http://127.0.0.1:8765/mcp"
+
+
+def test_cli_ingest_antigravity_delegates_to_service(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Ingest antigravity command executes with arguments."""
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir()
+    service = _FakeService(tmp_path)
+    monkeypatch.setattr(cli, "_service", lambda: service)
+
+    cli.ingest_antigravity(transcripts_root=transcripts_dir, space="work")
+
+    assert service.calls == [
+        (
+            "ingest_antigravity",
+            {
+                "transcripts_root": transcripts_dir,
+                "extract": True,
+                "space_id": "work",
+                "max_llm_calls": None,
+                "max_seconds": None,
+                "batch_size": None,
+            },
+        )
+    ]
