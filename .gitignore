@@ -38,3 +38,5 @@ neo4j/
 # Operating System
 .DS_Store
 Thumbs.db
+docker-compose.override.yml
+docker-compose.*.local.yml
