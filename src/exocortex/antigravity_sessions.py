@@ -159,13 +159,12 @@ def _clean_user_content(content: str) -> str:
     return cleaned.strip()
 
 
-def _read_antigravity_messages(path: Path) -> list[AntigravityMessage]:
-    """Collect conversational messages and tool invocations from transcript JSONL."""
+def _read_antigravity_lines(lines: Iterable[str]) -> list[AntigravityMessage]:
+    """Collect conversational messages and tool invocations from lines of JSONL."""
     messages: list[AntigravityMessage] = []
     last_tool_name = "tool"
 
-    with path.open(encoding="utf-8") as source_file:
-        for event_index, line in enumerate(source_file):
+    for event_index, line in enumerate(lines):
             if not line.strip():
                 continue
             try:
@@ -320,3 +319,50 @@ def _experience_title(
                 return candidate[:80]
 
     return f"Antigravity session {conv_id[:8]} segment {segment_number + 1}"
+
+
+
+def _read_antigravity_messages(path: Path) -> list[AntigravityMessage]:
+    """Collect conversational messages from transcript file."""
+    with path.open(encoding="utf-8") as source_file:
+        return _read_antigravity_lines(source_file)
+
+
+def parse_antigravity_records(
+    lines: Iterable[str],
+    conversation_id: str,
+    space_id: str = "work",
+    occurred_on: date | None = None,
+) -> list[SourceRecord]:
+    """Convert transcript JSONL lines into stable thematic source records."""
+    messages = _read_antigravity_lines(lines)
+    if not messages:
+        return []
+
+    session_id = f"antigravity-session-{conversation_id}"
+    locator_base = f"antigravity-session://{conversation_id}"
+    date_val = occurred_on or next(
+        (m.occurred_on for m in messages if m.occurred_on),
+        date.today(),
+    )
+    records: list[SourceRecord] = []
+    for segment_number, segment in enumerate(_segment_messages(messages)):
+        first = segment[0].event_index
+        last = segment[-1].event_index
+        segment_id = f"{session_id}-segment-{first:06d}-{last:06d}"
+        locator = f"{locator_base}#segment-{first:06d}-{last:06d}"
+        records.append(
+            SourceRecord(
+                source_id=segment_id,
+                title=_experience_title(conversation_id, segment_number, segment),
+                content=_render_segment(segment),
+                space_id=space_id,
+                locator=locator,
+                occurred_on=date_val,
+                session_id=session_id,
+                segment_id=segment_id,
+                event_start=first,
+                event_end=last,
+            )
+        )
+    return records

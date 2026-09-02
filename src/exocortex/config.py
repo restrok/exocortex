@@ -28,6 +28,18 @@ class Settings(BaseSettings):
         validation_alias="BRAIN_DEFAULT_SPACE",
     )
     llm_base_url: str = Field(validation_alias="BRAIN_LLM_BASE_URL")
+    llm_response_format: str = Field(
+        default="json_object",
+        validation_alias="BRAIN_LLM_RESPONSE_FORMAT",
+    )
+    repair_mode: str = Field(
+        default="daily",
+        validation_alias="BRAIN_REPAIR_MODE",
+    )
+    repair_fuzzy_timeout_seconds: float = Field(
+        default=15.0,
+        validation_alias="BRAIN_REPAIR_FUZZY_TIMEOUT_SECONDS",
+    )
     llm_model: str = Field(
         default="gpt-5.6-luna",
         validation_alias="BRAIN_LLM_MODEL",

@@ -447,3 +447,8 @@ configured gateway.
   recommendations require supported user-decision or tool-observation claims,
   and recommendation feedback is persisted in the Vault before being projected
   to Neo4j.
+
+## Roadmap & Architecture RFCs
+
+- **[RFC 001: Centralized Multi-User Architecture & Label-First Knowledge Graph](docs/rfcs/001-multiuser-label-based-architecture.md)**:
+  Evolution of Exocortex from a local workstation tool into a centralized team knowledge service accessed exclusively over MCP, featuring a unified label-based taxonomy (replacing rigid space silos) and automatic background user role profiling (DevOps, Data Eng, SRE).

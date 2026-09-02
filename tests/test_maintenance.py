@@ -595,3 +595,45 @@ def test_repair_consolidates_exact_duplicates_without_deleting_provenance(
     assert duplicate.metadata.superseded_by == str(canonical.metadata.id)
     assert service.vault.get(str(first.metadata.id)) is not None
     assert service.vault.get(str(second.metadata.id)) is not None
+
+
+def test_repair_modes_daily_and_full_performance(tmp_path: Path) -> None:
+    """Daily mode detects exact duplicates in O(N); full mode runs fuzzy matching."""
+    service = BrainService(make_settings(tmp_path / "brain"))
+
+    service.vault.upsert_managed(
+        NoteMetadata(
+            type="workflow",
+            title="Terraform Cloud Run Deployment Guide",
+            space_id="work",
+            labels=["topic:terraform"],
+        ),
+        "content 1",
+    )
+    service.vault.upsert_managed(
+        NoteMetadata(
+            type="workflow",
+            title="Terraform Cloud Run Deployment Guide",
+            space_id="work",
+            labels=["topic:terraform"],
+        ),
+        "content 1",
+    )
+    service.vault.upsert_managed(
+        NoteMetadata(
+            type="workflow",
+            title="Terraform Cloud Run Deployment Guide v2",
+            space_id="work",
+            labels=["topic:terraform"],
+        ),
+        "content 3",
+    )
+
+    daily_report = service.repair_report(mode="daily")
+    assert daily_report["repair_mode"] == "daily"
+    assert len(daily_report["duplicates"]) == 1
+    assert daily_report["duplicates"][0]["action"] == "supersede"
+
+    full_report = service.repair_report(mode="full")
+    assert full_report["repair_mode"] == "full"
+    assert len(full_report["duplicates"]) >= 2

@@ -27,22 +27,33 @@ def run_cycle(service: BrainService, settings: Settings) -> dict[str, object]:
     }
     _save_run_status(settings, status)
     try:
-        _start_phase(settings, status, "repair")
-        _LOGGER.info("Learning phase started phase=repair")
-        repair = service.repair_report()
-        repair_result = (
-            service.repair_apply()
-            if (
+        repair_mode = getattr(settings, "repair_mode", "daily")
+        if repair_mode != "disabled":
+            _start_phase(settings, status, "repair")
+            _LOGGER.info("Learning phase started phase=repair mode=%s", repair_mode)
+            try:
+                repair = service.repair_report(mode=repair_mode)
+            except TypeError:
+                repair = service.repair_report()
+
+            should_apply = (
                 repair["moves"]
                 or repair["state_changes"]
                 or repair["metadata_changes"]
                 or repair["duplicates"]
             )
-            else {"status": "not_needed"}
-        )
-        status["repair"] = repair_result
-        _finish_phase(settings, status, "repair", repair_result)
-        _LOGGER.info("Learning phase finished phase=repair")
+            if should_apply:
+                try:
+                    repair_result = service.repair_apply(mode=repair_mode)
+                except TypeError:
+                    repair_result = service.repair_apply()
+            else:
+                repair_result = {"status": "not_needed"}
+            status["repair"] = repair_result
+            _finish_phase(settings, status, "repair", repair_result)
+            _LOGGER.info("Learning phase finished phase=repair")
+        else:
+            status["repair"] = {"status": "skipped", "reason": "disabled"}
 
         _start_phase(settings, status, "backfill")
         if settings.scheduler_backfill_enabled:
