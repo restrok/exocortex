@@ -14,7 +14,10 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 from exocortex.actions import canonicalize_action_key
-from exocortex.antigravity_sessions import AntigravitySessionAdapter
+from exocortex.antigravity_sessions import (
+    AntigravitySessionAdapter,
+    parse_antigravity_records,
+)
 from exocortex.codex_sessions import CodexSessionAdapter
 from exocortex.config import Settings
 from exocortex.gateway import REFLECTION_PROMPT_VERSION, GatewayClient
@@ -200,6 +203,39 @@ class BrainService:
         )
 
     @traced("exocortex.ingest_antigravity")
+    def ingest_antigravity_transcript(
+        self,
+        transcript_jsonl: str,
+        conversation_id: str,
+        space_id: str,
+    ) -> ResponseEnvelope:
+        """Ingest transcript JSONL content directly sent via MCP."""
+        records = parse_antigravity_records(
+            transcript_jsonl.splitlines(),
+            conversation_id=conversation_id,
+            space_id=space_id,
+        )
+        if not records:
+            return ResponseEnvelope(
+                status="ok",
+                method="ingest_antigravity_transcript",
+                data={
+                    "conversation_id": conversation_id,
+                    "records_processed": 0,
+                    "status": "empty",
+                },
+            )
+        results = self._ingestor().ingest_batch(records, extract=True)
+        return ResponseEnvelope(
+            status="ok",
+            method="ingest_antigravity_transcript",
+            data={
+                "conversation_id": conversation_id,
+                "records_processed": len(results),
+                "notes_created": [r.note_id for r in results if r.note_id],
+            },
+        )
+
     def ingest_antigravity(
         self,
         transcripts_root: Path | None = None,

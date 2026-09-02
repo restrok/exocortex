@@ -389,6 +389,27 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
+    def brain_ingest_session(
+        transcript_jsonl: str,
+        conversation_id: str,
+        space_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest transcript JSONL over MCP without filesystem mounts."""
+        response = service.ingest_antigravity_transcript(
+            transcript_jsonl=transcript_jsonl,
+            conversation_id=conversation_id,
+            space_id=space_id or settings.default_space,
+        )
+        return response.model_dump(mode="json")
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
     def brain_remember(
         content: str,
         title: str,
