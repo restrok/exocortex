@@ -214,6 +214,7 @@ class BrainService:
             transcript_jsonl.splitlines(),
             conversation_id=conversation_id,
             space_id=space_id,
+            gateway=self.gateway,
         )
         if not records:
             return ResponseEnvelope(
@@ -255,6 +256,7 @@ class BrainService:
             root,
             space_id or self.settings.default_space,
             closed_after_seconds=self.settings.session_closed_after_seconds,
+            gateway=self.gateway,
         )
         return self._ingest_sessions(
             adapter,
