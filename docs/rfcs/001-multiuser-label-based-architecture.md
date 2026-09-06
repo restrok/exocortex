@@ -23,7 +23,7 @@ This RFC defines the evolution of Exocortex into a **centralized, multi-user, la
 ## 2. Core Architecture Principles
 
 ### 2.1 Decoupled, Network-First MCP Transport
-Exocortex runs as an independent headless service on dedicated infrastructure (e.g. Docker macvlan on Lenovo server at `192.168.89.30`).
+Exocortex runs as an independent headless service on dedicated infrastructure (e.g. Docker macvlan on Lenovo server at `server host`).
 - **No Local Filesystem Binding:** Neither the client nor the server shares filesystems or bind-mounts.
 - **Pure MCP Transport:** All ingestion (`brain_remember`, `brain_ingest_session`), search (`brain_search`), and workflow retrieval (`brain_recommend_workflow`) occur over streamable HTTP / Server-Sent Events (SSE).
 - **Multiple Concurrent Clients:** Antigravity on Windows, Codex, Cursor, CI/CD pipelines, or other teammates' workstations can concurrently interact with the central brain.
