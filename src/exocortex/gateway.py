@@ -255,7 +255,7 @@ class GatewayClient:
                 )
             if not isinstance(content, str):
                 raise _BatchContractError("message_content_not_text")
-            batch_payload = json.loads(_clean_json(content))
+            batch_payload = json.loads(_clean_json(content), strict=False)
             if not isinstance(batch_payload, dict):
                 raise _BatchContractError("batch_payload_not_object")
             items = batch_payload.get("items")
@@ -514,8 +514,8 @@ class GatewayClient:
         response = self._request(
             "embed_batch",
             "POST",
-            f"{self._base_url}/embeddings",
-            headers=self._headers,
+            f"{self._embedding_base_url}/embeddings",
+            headers=self._embedding_headers,
             json={
                 "model": self._settings.embedding_model,
                 "input": texts,
@@ -552,6 +552,21 @@ class GatewayClient:
     def _base_url(self) -> str:
         """Return the gateway URL without a trailing slash."""
         return self._settings.llm_base_url.rstrip("/")
+
+    @property
+    def _embedding_base_url(self) -> str:
+        """Return the base URL for embeddings, defaulting to llm_base_url."""
+        if self._settings.embedding_base_url:
+            return self._settings.embedding_base_url.rstrip("/")
+        return self._base_url
+
+    @property
+    def _embedding_headers(self) -> dict[str, str]:
+        """Return request headers for embedding requests."""
+        if self._settings.embedding_api_key is not None:
+            token = self._settings.embedding_api_key.get_secret_value()
+            return {"Authorization": f"Bearer {token}"} if token else {}
+        return self._headers
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -732,17 +747,28 @@ def _wall_clock_timeout(seconds: float | None):
 
 def _clean_json(content: str) -> str:
     """Extract an object payload from a model response that may include prose."""
+    cleaned = content.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = cleaned.strip()
+
     try:
-        json.loads(content)
-        return content
+        json.loads(cleaned, strict=False)
+        return cleaned
     except json.JSONDecodeError:
-        start = content.find("{")
-        end = content.rfind("}")
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
         if start < 0 or end < start:
             raise GatewayError(
                 "Gateway response did not include a JSON object."
             ) from None
-    return content[start : end + 1]
+        candidate = cleaned[start : end + 1]
+        try:
+            json.loads(candidate, strict=False)
+            return candidate
+        except json.JSONDecodeError:
+            fixed = re.sub(r",\s*([}\]])", r"\1", candidate)
+            return fixed
 
 
 class _BatchContractError(ValueError):

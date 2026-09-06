@@ -32,3 +32,23 @@ def test_acme_alias_means_acme_corp_organization(tmp_path: Path) -> None:
 
     assert registry.resolve("acme") == "organization:acme-corp"
     assert registry.resolve("Acme Corp") == "organization:acme-corp"
+
+
+def test_infer_labels_extracts_technologies_and_topics(tmp_path: Path) -> None:
+    """Infer labels produces deterministic taxonomy from title and text."""
+    from exocortex.labels import infer_labels
+
+    registry = LabelRegistry(tmp_path / "taxonomy.json")
+    labels = infer_labels(
+        title="Webflow Live Coding Interview Postmortem and SRE Patterns",
+        text="Investigated latency with Python and Kubernetes on GCP.",
+        registry=registry,
+    )
+
+    assert "technology:webflow" in labels
+    assert "technology:python" in labels
+    assert "technology:kubernetes" in labels
+    assert "technology:gcp" in labels
+    assert "topic:postmortem" in labels
+    assert "topic:live-coding" in labels
+    assert "topic:sre" in labels

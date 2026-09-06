@@ -400,7 +400,7 @@ def backfill_sources(
 
 def retry_fallback_sources(
     service: BrainService,
-    batch_size: int = 25,
+    batch_size: int = 1,
     process_all: bool = False,
     max_failures: int = 25,
 ) -> dict[str, object]:
@@ -722,6 +722,20 @@ def _desired_state(note: object) -> str:
         return "penalized"
     if metadata.schema_version < 2:
         return "penalized"
+
+    is_direct_memory = any(
+        (ref.locator and "brain_remember" in ref.locator)
+        or (ref.id and ref.id.startswith("memory-"))
+        for ref in metadata.source_refs
+    )
+    if is_direct_memory:
+        if metadata.confidence < 0.4 or metadata.evidence_status in {
+            "proposal",
+            "investigation",
+        }:
+            return "penalized"
+        return "active"
+
     if metadata.confidence < 0.7 or metadata.evidence_status in {
         "unknown",
         "proposal",

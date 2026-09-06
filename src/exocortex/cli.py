@@ -331,7 +331,7 @@ def repair_rollback(
 @app.command()
 def backfill(
     all_sources: Annotated[bool, typer.Option("--all")] = False,
-    batch_size: Annotated[int, typer.Option(min=1, max=250)] = 25,
+    batch_size: Annotated[int, typer.Option(min=1, max=250)] = 1,
     resume: Annotated[bool, typer.Option()] = True,
     max_failures: Annotated[int, typer.Option(min=0, max=250)] = 25,
 ) -> None:

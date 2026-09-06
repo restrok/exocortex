@@ -56,6 +56,14 @@ class Settings(BaseSettings):
         default="text-embedding-3-large",
         validation_alias="BRAIN_EMBEDDING_MODEL",
     )
+    embedding_base_url: str | None = Field(
+        default=None,
+        validation_alias="BRAIN_EMBEDDING_BASE_URL",
+    )
+    embedding_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="BRAIN_EMBEDDING_API_KEY",
+    )
     search_embedding_timeout_seconds: int = Field(
         default=10,
         validation_alias="BRAIN_SEARCH_EMBEDDING_TIMEOUT_SECONDS",

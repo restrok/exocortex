@@ -19,7 +19,7 @@ from exocortex.gateway import (
     GatewayClient,
     GatewayError,
 )
-from exocortex.labels import LabelRegistry
+from exocortex.labels import LabelRegistry, infer_labels
 from exocortex.models import (
     Claim,
     EvidenceSpan,
@@ -551,12 +551,18 @@ class Ingestor:
         """Create a deterministic note when gateway extraction is unavailable."""
         lines = sanitized_text.strip().splitlines()
         summary = lines[0] if lines else title
+        is_direct_memory = (
+            (record.locator and "brain_remember" in record.locator)
+            or record.source_id.startswith("memory-")
+        )
+        labels = infer_labels(title, sanitized_text, self._label_registry)
         return ExtractedKnowledge(
             title=title,
             note_type="task",
             summary=summary[:500],
-            confidence=0.3,
-            evidence_status="unknown",
+            confidence=0.85 if is_direct_memory else 0.3,
+            evidence_status="confirmed_success" if is_direct_memory else "unknown",
+            labels=labels,
             prompt_version=FALLBACK_PROMPT_VERSION,
             model_version=self._model_version,
         )
@@ -611,7 +617,11 @@ class Ingestor:
     ) -> VaultNote:
         """Write a canonical note from a sanitized extraction."""
         labels = knowledge.labels
-        if self._label_registry is not None:
+        if not labels:
+            labels = infer_labels(
+                knowledge.title, source_content or "", self._label_registry
+            )
+        elif self._label_registry is not None:
             labels = self._label_registry.canonicalize(labels)
         metadata = NoteMetadata(
             schema_version=2,
@@ -625,7 +635,9 @@ class Ingestor:
             labels=labels,
             evidence_status=knowledge.evidence_status,
             recommendation_state=(
-                "quarantined" if quarantined else _recommendation_state(knowledge)
+                "quarantined"
+                if quarantined
+                else _recommendation_state(knowledge, reference=reference)
             ),
             prompt_version=knowledge.prompt_version,
             model_version=knowledge.model_version,
@@ -974,8 +986,22 @@ def _event_range_is_valid(
     )
 
 
-def _recommendation_state(knowledge: ExtractedKnowledge) -> str:
+def _recommendation_state(
+    knowledge: ExtractedKnowledge,
+    reference: SourceReference | None = None,
+) -> str:
     """Classify extracted knowledge for ranking and workflow eligibility."""
+    is_direct_memory = reference is not None and (
+        (reference.locator and "brain_remember" in reference.locator)
+        or (reference.id and reference.id.startswith("memory-"))
+    )
+    if is_direct_memory:
+        if knowledge.confidence < 0.4:
+            return "penalized"
+        if knowledge.evidence_status in {"proposal", "investigation"}:
+            return "penalized"
+        return "active"
+
     if knowledge.confidence < 0.7:
         return "penalized"
     if knowledge.evidence_status in {"unknown", "proposal", "investigation"}:
