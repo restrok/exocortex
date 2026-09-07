@@ -66,7 +66,7 @@ def test_gateway_normalizes_non_string_scope_values(tmp_path) -> None:
                                     "title": "GitLab remediation workflow",
                                     "note_type": "workflow",
                                     "summary": "Use GitLab as the source of truth.",
-                                        "scope": {
+                                    "scope": {
                                         "organization": ["Acme Corp"],
                                         "provider": {"name": "GitLab"},
                                         "runtime": None,
@@ -404,14 +404,14 @@ def test_gateway_rebinds_cross_source_evidence_only_when_fragment_matches(
                                                                     "deployment passed"
                                                                 ),
                                                             },
-                                                                {
-                                                                    "source_id": (
-                                                                        "source-2"
-                                                                    ),
-                                                                    "fragment": (
-                                                                        "not present"
-                                                                    ),
-                                                                },
+                                                            {
+                                                                "source_id": (
+                                                                    "source-2"
+                                                                ),
+                                                                "fragment": (
+                                                                    "not present"
+                                                                ),
+                                                            },
                                                         ],
                                                     }
                                                 ],
@@ -464,7 +464,7 @@ def test_gateway_batch_requires_title_and_summary(tmp_path) -> None:
                                         {
                                             "source_id": "source-1",
                                             "knowledge": {
-                                            "facts": ["Missing title and summary."],
+                                                "facts": ["Missing title and summary."],
                                             },
                                         }
                                     ]
@@ -581,9 +581,9 @@ def test_gateway_batch_normalizes_confidence_and_claim_variants(tmp_path) -> Non
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
-    result = gateway.extract_batch(
-        [{"source_id": "source-1", "content": "one"}]
-    )["source-1"]
+    result = gateway.extract_batch([{"source_id": "source-1", "content": "one"}])[
+        "source-1"
+    ]
 
     assert result.confidence == 0.5
     assert result.claims[0].confidence == 0.5
@@ -843,8 +843,7 @@ def test_gateway_reflects_only_structured_workflow_proposals(tmp_path) -> None:
     assert result.workflows[0].validation == ["Plan succeeds"]
     assert result.workflows[0].action.action_key == "deploy.validate"
     assert (
-        result.workflows[0].action.canonical_action_key
-        == "repository.changes.validate"
+        result.workflows[0].action.canonical_action_key == "repository.changes.validate"
     )
     assert captured["body"]["model"] == "gpt-5.6-luna"
     assert captured["body"]["reasoning_effort"] == "high"

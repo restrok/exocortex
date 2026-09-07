@@ -172,8 +172,7 @@ def test_notes_by_date_is_stable_and_supports_offset_pagination(
                     SourceReference(
                         id=f"session-{index}",
                         locator=(
-                            "codex-session://2026/07/"
-                            f"{index + 1:02d}/rollout.jsonl"
+                            f"codex-session://2026/07/{index + 1:02d}/rollout.jsonl"
                         ),
                         content_hash=f"hash-{index}",
                         occurred_on=date(2026, 7, index + 1),
@@ -374,9 +373,7 @@ def test_reflection_accepts_one_source_with_continuous_initial_confidence(
             WorkflowProposal(
                 title="Terraform validation",
                 summary="Validate before apply.",
-                steps=[
-                    {"text": "Run plan", "evidence_claim_ids": ["claim-a"]}
-                ],
+                steps=[{"text": "Run plan", "evidence_claim_ids": ["claim-a"]}],
                 evidence_note_ids=[str(evidence.metadata.id)],
                 confidence=0.95,
             )
@@ -539,9 +536,7 @@ def test_reflection_rejects_single_assistant_suggestion(
     proposal = WorkflowProposal(
         title="Terraform formatting validation",
         summary="Format Terraform before validation.",
-        steps=[
-            {"text": "Run terraform fmt.", "evidence_claim_ids": ["claim-format"]}
-        ],
+        steps=[{"text": "Run terraform fmt.", "evidence_claim_ids": ["claim-format"]}],
         evidence_note_ids=[str(note.metadata.id)],
         confidence=0.8,
     )
@@ -725,9 +720,7 @@ def test_workflow_feedback_updates_vault_and_quarantines_low_confidence(
 
     workflow.metadata.confidence = 0.35
     service.vault.update_metadata(workflow)
-    quarantined = service.record_workflow_feedback(
-        str(workflow.metadata.id), "failed"
-    )
+    quarantined = service.record_workflow_feedback(str(workflow.metadata.id), "failed")
     assert quarantined.data["confidence"] == 0.15
     assert quarantined.data["recommendation_state"] == "quarantined"
 
@@ -736,37 +729,37 @@ def test_reflection_keeps_workflow_separate_from_evidence(tmp_path: Path) -> Non
     """Workflow persistence must not overwrite an evidence note."""
     service = BrainService(make_settings(tmp_path / "brain"))
     first = service.vault.upsert_managed(
-            NoteMetadata(
+        NoteMetadata(
             type="task",
             title="First deployment",
             space_id="work",
             evidence_status="confirmed_success",
-                source_refs=[
+            source_refs=[
                 SourceReference(
                     id="session-first",
                     locator="codex-session://first",
                     content_hash="hash-first",
-                    )
-                ],
-                claims=[
-                    Claim(
-                        id="claim-deploy-first",
-                        text="Run the migration before deployment.",
-                        claim_key="deployment.migration-before-deploy",
-                        claim_type="tool_observation",
-                        confidence=0.95,
-                        evidence=[
-                            EvidenceSpan(
-                                source_id="session-first",
-                                event_start=1,
-                                event_end=2,
-                                fragment="Run the migration before deployment.",
-                                precision="exact",
-                            )
-                        ],
-                    )
-                ],
-            ),
+                )
+            ],
+            claims=[
+                Claim(
+                    id="claim-deploy-first",
+                    text="Run the migration before deployment.",
+                    claim_key="deployment.migration-before-deploy",
+                    claim_type="tool_observation",
+                    confidence=0.95,
+                    evidence=[
+                        EvidenceSpan(
+                            source_id="session-first",
+                            event_start=1,
+                            event_end=2,
+                            fragment="Run the migration before deployment.",
+                            precision="exact",
+                        )
+                    ],
+                )
+            ],
+        ),
         "## Summary\nRun the migration before deployment.",
     )
     second = service.vault.upsert_managed(
@@ -775,32 +768,32 @@ def test_reflection_keeps_workflow_separate_from_evidence(tmp_path: Path) -> Non
             title="Second deployment",
             space_id="work",
             evidence_status="decision",
-                source_refs=[
+            source_refs=[
                 SourceReference(
                     id="session-second",
                     locator="codex-session://second",
                     content_hash="hash-second",
-                    )
-                ],
-                claims=[
-                    Claim(
-                        id="claim-deploy-second",
-                        text="Run the migration before deployment.",
-                        claim_key="deployment.migration-before-deploy",
-                        claim_type="user_decision",
-                        confidence=0.95,
-                        evidence=[
-                            EvidenceSpan(
-                                source_id="session-second",
-                                event_start=3,
-                                event_end=4,
-                                fragment="Run the migration before deployment.",
-                                precision="exact",
-                            )
-                        ],
-                    )
-                ],
-            ),
+                )
+            ],
+            claims=[
+                Claim(
+                    id="claim-deploy-second",
+                    text="Run the migration before deployment.",
+                    claim_key="deployment.migration-before-deploy",
+                    claim_type="user_decision",
+                    confidence=0.95,
+                    evidence=[
+                        EvidenceSpan(
+                            source_id="session-second",
+                            event_start=3,
+                            event_end=4,
+                            fragment="Run the migration before deployment.",
+                            precision="exact",
+                        )
+                    ],
+                )
+            ],
+        ),
         "## Summary\nRun the migration before deployment.",
     )
     evidence_snapshot = {
@@ -812,15 +805,15 @@ def test_reflection_keeps_workflow_separate_from_evidence(tmp_path: Path) -> Non
             WorkflowProposal(
                 title="Deployment migration",
                 summary="Run the migration before deployment.",
-                    steps=[
-                        {
-                            "text": "Run the migration",
-                            "evidence_claim_ids": [
-                                "claim-deploy-first",
-                                "claim-deploy-second",
-                            ],
-                        }
-                    ],
+                steps=[
+                    {
+                        "text": "Run the migration",
+                        "evidence_claim_ids": [
+                            "claim-deploy-first",
+                            "claim-deploy-second",
+                        ],
+                    }
+                ],
                 evidence_note_ids=[str(first.metadata.id), str(second.metadata.id)],
                 confidence=0.9,
             )
@@ -1008,8 +1001,7 @@ def test_service_pure_helpers_preserve_evidence_and_ranking_invariants(
     assert _label_overlap(first.metadata.labels, {"technology:terraform"}) == 1.0
     assert _label_overlap([], {"technology:terraform"}) == 0.0
     assert all(
-        _quality_factor(state) > 0
-        for state in ["active", "penalized", "quarantined"]
+        _quality_factor(state) > 0 for state in ["active", "penalized", "quarantined"]
     )
     assert _quality_factor("unknown") == 0.55
     assert _normalize_workflow_text(" Terraform / Plan ") == "terraform plan"
@@ -1064,9 +1056,7 @@ def test_action_signature_keeps_distinct_implementation_routes_separate(
             title="Grant dataset access with Terraform",
             space_id="work",
             actions=[
-                action.model_copy(
-                    update={"tools": ["datahub"], "route": "datahub.mcp"}
-                )
+                action.model_copy(update={"tools": ["datahub"], "route": "datahub.mcp"})
             ],
         ),
         "workflow",

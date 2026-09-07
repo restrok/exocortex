@@ -65,8 +65,8 @@ Every session ingested or memory recorded carries user attribution:
 class SourceReference(BaseModel):
     id: str
     locator: str
-    user_id: str | None = None          # e.g., "fsirio", "jdoe"
-    author_role: str | None = None      # e.g., "devops", "data_engineer"
+    user_id: str | None = None  # e.g., "fsirio", "jdoe"
+    author_role: str | None = None  # e.g., "devops", "data_engineer"
     occurred_on: date | None = None
 ```
 

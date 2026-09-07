@@ -188,9 +188,7 @@ def test_literal_anchors_recover_context_when_graph_misses_note(
 
     assert response.status == "abstained"
     assert response.data == []
-    assert response.meta["abstention_reason"] == (
-        "insufficient_direct_action_evidence"
-    )
+    assert response.meta["abstention_reason"] == ("insufficient_direct_action_evidence")
     assert response.meta["context_related"][0]["note_id"] == str(note.metadata.id)
     assert response.meta["context_related"][0]["claim_support"] == "context_only"
 
@@ -471,9 +469,7 @@ def test_mismatched_adapter_cannot_promote_direct_action(
 
     assert response.status == "abstained"
     assert response.data == []
-    assert response.meta["abstention_reason"] == (
-        "insufficient_direct_action_evidence"
-    )
+    assert response.meta["abstention_reason"] == ("insufficient_direct_action_evidence")
 
 
 def test_search_feedback_is_sanitized_and_persisted(tmp_path: Path) -> None:
@@ -686,12 +682,12 @@ def test_generic_context_filters_unrelated_gateway_results(
         service,
         "_graph_store",
         lambda: _Store(
-                [
-                    _graph_result(str(codeen.metadata.id)),
-                    _graph_result(str(sftp.metadata.id), score=0.99),
-                ],
-                [],
-            ),
+            [
+                _graph_result(str(codeen.metadata.id)),
+                _graph_result(str(sftp.metadata.id), score=0.99),
+            ],
+            [],
+        ),
     )
     monkeypatch.setattr(
         service.gateway,

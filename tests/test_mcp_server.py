@@ -153,33 +153,37 @@ def test_mcp_tools_return_v2_envelopes_and_validate_dates(
     assert incomplete["status"] == "incomplete"
     assert incomplete["data"] is None
     assert incomplete["meta"]["usable_as_evidence"] is False
-    assert call("brain_list_by_date", start_on="2026-08-01", end_on="2026-08-02")[
-        "status"
-    ] == "not_found"
-    assert call("brain_list_by_date", start_on="2026-08-01", end_on="2026-08-02")[
-        "meta"
-    ]["abstention_reason"] == "no_notes_in_date_range"
-    timeline = call(
-        "brain_list_by_date", start_on="2026-08-01", end_on="2026-08-02"
+    assert (
+        call("brain_list_by_date", start_on="2026-08-01", end_on="2026-08-02")["status"]
+        == "not_found"
     )
+    assert (
+        call("brain_list_by_date", start_on="2026-08-01", end_on="2026-08-02")["meta"][
+            "abstention_reason"
+        ]
+        == "no_notes_in_date_range"
+    )
+    timeline = call("brain_list_by_date", start_on="2026-08-01", end_on="2026-08-02")
     assert timeline["meta"]["date_basis"] == "source_reference.occurred_on"
-    assert timeline["meta"]["coverage_warning"] == (
-        "some_notes_have_no_source_date"
-    )
+    assert timeline["meta"]["coverage_warning"] == ("some_notes_have_no_source_date")
     assert timeline["meta"]["total_count"] == 0
     assert timeline["meta"]["has_more"] is False
     assert call("brain_list_by_label", labels=["terraform"])["status"] == "not_found"
     assert call("brain_recommend_workflow", task="deploy")["status"] == "abstained"
     assert call("brain_get_workflow", workflow_id="missing")["status"] == "not_found"
-    assert call(
-        "brain_record_feedback", workflow_id="missing", outcome="failed"
-    )["status"] == "ok"
-    assert call(
-        "brain_record_search_feedback",
-        query="delete dataset",
-        note_ids=["missing"],
-        relevance="irrelevant",
-    )["status"] == "stored"
+    assert (
+        call("brain_record_feedback", workflow_id="missing", outcome="failed")["status"]
+        == "ok"
+    )
+    assert (
+        call(
+            "brain_record_search_feedback",
+            query="delete dataset",
+            note_ids=["missing"],
+            relevance="irrelevant",
+        )["status"]
+        == "stored"
+    )
     assert call("brain_health")["status"] == "degraded"
     assert call("brain_learning_status")["status"] == "ok"
     assert call("brain_remember", content="memory", title="Memory")["status"] == (
@@ -201,4 +205,3 @@ def test_mcp_server_registers_dashboard_routes(tmp_path: Path) -> None:
     assert "/" in routes
     assert "/dashboard" in routes
     assert "/api/dashboard" in routes
-

@@ -454,9 +454,7 @@ def _result_from_record(
             if str(node.get("note_type", "task")) == "workflow"
             and float(node.get("confidence", 0.0)) >= 0.80
             else (
-                "confirm"
-                if str(node.get("note_type", "task")) == "workflow"
-                else None
+                "confirm" if str(node.get("note_type", "task")) == "workflow" else None
             )
         ),
         lexical_score=score if lexical else 0.0,

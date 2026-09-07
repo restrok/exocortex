@@ -158,9 +158,7 @@ def _read_session_messages(path: Path) -> list[SessionMessage]:
                     "tool_result",
                 }:
                     call_id = str(
-                        payload.get("call_id")
-                        or payload.get("tool_call_id")
-                        or ""
+                        payload.get("call_id") or payload.get("tool_call_id") or ""
                     )
                     output = payload.get("output") or payload.get("content")
                     messages.append(

@@ -370,8 +370,7 @@ class GatewayClient:
                 )
             else:
                 _LOGGER.info(
-                    "Gateway batch contract valid expected_items=%d "
-                    "returned_items=%d",
+                    "Gateway batch contract valid expected_items=%d returned_items=%d",
                     len(expected_ids),
                     len(extracted),
                 )
@@ -629,9 +628,7 @@ class GatewayClient:
                         response = self._client.request(method, url, **kwargs)
                 except Exception as error:  # pylint: disable=broad-except
                     elapsed_wall = time.time() - attempt_started_wall
-                    elapsed_monotonic = (
-                        monotonic_seconds() - attempt_started_monotonic
-                    )
+                    elapsed_monotonic = monotonic_seconds() - attempt_started_monotonic
                     attempt_span.set_attribute(
                         "brain.gateway.elapsed_wall_seconds",
                         elapsed_wall,
@@ -668,10 +665,7 @@ class GatewayClient:
             parent_span.set_attribute("brain.gateway.operation", operation)
             parent_span.set_attribute("http.response.status_code", response.status_code)
             parent_span.set_attribute("brain.gateway.attempt", attempt + 1)
-            if (
-                response.status_code not in retry_statuses
-                or attempt >= retry_attempts
-            ):
+            if response.status_code not in retry_statuses or attempt >= retry_attempts:
                 return response
             delay = min(
                 retry_backoff_seconds * (2**attempt),
@@ -889,9 +883,8 @@ def _repair_batch_evidence(
                 valid_evidence.append(evidence)
                 continue
             fragment = evidence.get("fragment") or evidence.get("quote")
-            if (
-                isinstance(fragment, str)
-                and _normalized_fragment_in_source(fragment, source_text)
+            if isinstance(fragment, str) and _normalized_fragment_in_source(
+                fragment, source_text
             ):
                 evidence["source_id"] = source_id
                 valid_evidence.append(evidence)
@@ -960,9 +953,7 @@ def _normalize_knowledge_payload(
                     if field in action:
                         action[field] = _canonical_text_list(action[field])
                 if "confidence" in action:
-                    action["confidence"] = _canonical_confidence(
-                        action["confidence"]
-                    )
+                    action["confidence"] = _canonical_confidence(action["confidence"])
                 normalized_actions.append(action)
         payload["actions"] = normalized_actions
 
