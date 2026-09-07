@@ -130,8 +130,7 @@ def evaluate(
     for case in cases:
         results = _results_for_case(service, case, live)
         expected = {
-            _canonical_note_id(service, note_id)
-            for note_id in case.expected_note_ids
+            _canonical_note_id(service, note_id) for note_id in case.expected_note_ids
         }
         relevance = {
             _canonical_note_id(service, note_id): grade
@@ -164,11 +163,7 @@ def evaluate(
             claim_supported += sum(bool(claim.evidence) for claim in result.claims)
         category = by_category.setdefault(case.category, {"total": 0, "passed": 0})
         category["total"] += 1
-        case_passed = (
-            any(top_five)
-            if expected
-            else abstained == case.should_abstain
-        )
+        case_passed = any(top_five) if expected else abstained == case.should_abstain
         if case_passed:
             category["passed"] += 1
     return {
@@ -183,9 +178,7 @@ def evaluate(
         "gates": {
             "recall_at_5": _mean(recalls) >= 0.90,
             "mrr_at_10": _mean(reciprocal_ranks) >= 0.80,
-            "claims_supported": (
-                claim_supported / claim_total if claim_total else 1.0
-            )
+            "claims_supported": (claim_supported / claim_total if claim_total else 1.0)
             >= 0.95,
         },
         "mode": "live" if live else "offline",

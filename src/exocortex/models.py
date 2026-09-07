@@ -352,9 +352,7 @@ class WorkflowProposal(BaseModel):
         if value is None:
             return []
         if isinstance(value, dict):
-            value = value.get("checks") or value.get("validation") or value.get(
-                "items"
-            )
+            value = value.get("checks") or value.get("validation") or value.get("items")
             if value is None:
                 return []
         if not isinstance(value, list):
@@ -366,9 +364,7 @@ class WorkflowProposal(BaseModel):
                 continue
             if not isinstance(item, dict):
                 continue
-            text = item.get("text") or item.get("validation") or item.get(
-                "description"
-            )
+            text = item.get("text") or item.get("validation") or item.get("description")
             if isinstance(text, str):
                 normalized.append(text)
         return normalized

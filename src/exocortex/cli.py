@@ -595,8 +595,7 @@ def config_install_claude(
     settings_path = home / ".claude" / "settings.json"
     _ensure_claude_permission(settings_path)
     typer.echo(
-        "Installed the shared codex-work-brain skill and Claude Code MCP "
-        "registration."
+        "Installed the shared codex-work-brain skill and Claude Code MCP registration."
     )
 
 
@@ -821,6 +820,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
+
 @config_app.command("install-antigravity")
 def config_install_antigravity(
     mcp_url: Annotated[str, typer.Option()] = "http://127.0.0.1:8765/mcp",
@@ -865,4 +865,3 @@ def _register_antigravity_mcp(config_path: Path, mcp_url: str) -> None:
         "serverUrl": mcp_url,
     }
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-

@@ -242,8 +242,7 @@ def _compact_payload(
 
     lines = text.splitlines()
     is_diff = any(
-        line.startswith("diff --git") or line.startswith("@@")
-        for line in lines[:10]
+        line.startswith("diff --git") or line.startswith("@@") for line in lines[:10]
     )
     if is_diff and len(lines) > 20:
         head_lines = lines[:10]

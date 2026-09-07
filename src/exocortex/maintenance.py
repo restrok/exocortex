@@ -484,9 +484,7 @@ def retry_fallback_sources(
                     if result.status in {"promoted", "promoted_quarantined"}
                 )
                 failed_ids.update(
-                    result.source_id
-                    for result in results
-                    if result.status == "failed"
+                    result.source_id for result in results if result.status == "failed"
                 )
                 break
             except (GatewayError, httpx.HTTPError) as error:
@@ -587,8 +585,7 @@ def _needs_evidence_refresh(note: VaultNote) -> bool:
         claim.claim_type in {"user_decision", "tool_observation"}
         and claim.evidence
         and all(
-            evidence.precision in {"exact", "source"}
-            for evidence in claim.evidence
+            evidence.precision in {"exact", "source"} for evidence in claim.evidence
         )
         for claim in claims
     )
@@ -944,9 +941,7 @@ def _duplicate_notes(
 
                 union = p1.labels_set | p2.labels_set
                 label_ratio = (
-                    len(p1.labels_set & p2.labels_set) / len(union)
-                    if union
-                    else 0.0
+                    len(p1.labels_set & p2.labels_set) / len(union) if union else 0.0
                 )
                 note2 = p2.note
 

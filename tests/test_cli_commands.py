@@ -301,13 +301,14 @@ def test_cli_install_claude_is_idempotent_and_allows_memory_capture(
         command for command in commands if command[:3] == ["claude", "mcp", "add"]
     ]
     assert len(add_commands) == 1
-    assert (
-        home / ".claude" / "skills" / "codex-work-brain" / "SKILL.md"
-    ).read_text(encoding="utf-8") == "shared skill"
+    assert (home / ".claude" / "skills" / "codex-work-brain" / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "shared skill"
     settings = json.loads(
         (home / ".claude" / "settings.json").read_text(encoding="utf-8")
     )
     assert "mcp__codex-brain__brain_remember" in settings["permissions"]["allow"]
+
 
 def test_cli_install_antigravity_registers_mcp_and_skill(
     tmp_path: Path,

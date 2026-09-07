@@ -28,11 +28,19 @@ def get_dashboard_data(service: BrainService) -> dict[str, Any]:
             "title": n.metadata.title,
             "type": n.metadata.type,
             "state": n.metadata.recommendation_state,
-            "confidence": round(n.metadata.confidence, 2) if n.metadata.confidence is not None else 0.0,
+            "confidence": round(n.metadata.confidence, 2)
+            if n.metadata.confidence is not None
+            else 0.0,
             "labels": n.metadata.labels[:6],
-            "created_at": n.metadata.created_at.isoformat() if n.metadata.created_at else None,
-            "updated_at": n.metadata.updated_at.isoformat() if n.metadata.updated_at else None,
-            "preview": (n.content.strip().split("\n\n")[0][:180] + "...") if len(n.content.strip()) > 180 else n.content.strip(),
+            "created_at": n.metadata.created_at.isoformat()
+            if n.metadata.created_at
+            else None,
+            "updated_at": n.metadata.updated_at.isoformat()
+            if n.metadata.updated_at
+            else None,
+            "preview": (n.content.strip().split("\n\n")[0][:180] + "...")
+            if len(n.content.strip()) > 180
+            else n.content.strip(),
         }
         for n in sorted_notes[:40]
     ]
@@ -63,13 +71,17 @@ def get_dashboard_data(service: BrainService) -> dict[str, Any]:
                 "label": "Neo4j Graph Store",
             },
             "ollama_local": {
-                "status": "online" if doctor_report.gateway == "ok" else doctor_report.gateway,
+                "status": "online"
+                if doctor_report.gateway == "ok"
+                else doctor_report.gateway,
                 "base_url": service.settings.embedding_base_url or "default",
                 "model": service.settings.embedding_model,
                 "label": "Local Embeddings (Vector)",
             },
             "ollama_cloud": {
-                "status": "online" if doctor_report.gateway == "ok" else doctor_report.gateway,
+                "status": "online"
+                if doctor_report.gateway == "ok"
+                else doctor_report.gateway,
                 "base_url": service.settings.llm_base_url,
                 "model": service.settings.llm_model,
                 "label": "Cognitive LLM (Inference)",

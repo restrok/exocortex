@@ -552,9 +552,8 @@ class Ingestor:
         lines = sanitized_text.strip().splitlines()
         summary = lines[0] if lines else title
         is_direct_memory = (
-            (record.locator and "brain_remember" in record.locator)
-            or record.source_id.startswith("memory-")
-        )
+            record.locator and "brain_remember" in record.locator
+        ) or record.source_id.startswith("memory-")
         labels = infer_labels(title, sanitized_text, self._label_registry)
         return ExtractedKnowledge(
             title=title,
@@ -714,9 +713,9 @@ class Ingestor:
         knowledge.links = [
             self._sanitizer.sanitize(link).text[:300] for link in knowledge.links
         ]
-        knowledge.pattern_key = self._sanitizer.sanitize(
-            knowledge.pattern_key
-        ).text[:250]
+        knowledge.pattern_key = self._sanitizer.sanitize(knowledge.pattern_key).text[
+            :250
+        ]
         for field, value in knowledge.scope.model_dump().items():
             if field == "confidence":
                 continue
@@ -834,16 +833,8 @@ def _render_managed_content(
                         if action.subjects
                         else ""
                     ),
-                    (
-                        f"objects: {', '.join(action.objects)}"
-                        if action.objects
-                        else ""
-                    ),
-                    (
-                        f"tools: {', '.join(action.tools)}"
-                        if action.tools
-                        else ""
-                    ),
+                    (f"objects: {', '.join(action.objects)}" if action.objects else ""),
+                    (f"tools: {', '.join(action.tools)}" if action.tools else ""),
                     f"route: {action.route}" if action.route else "",
                 )
                 if item

@@ -249,8 +249,7 @@ class BrainService:
     ) -> list[IngestResult]:
         """Ingest Antigravity transcripts with resumable, bounded extraction."""
         root = Path(
-            transcripts_root
-            or (Path.home() / ".gemini" / "antigravity" / "brain")
+            transcripts_root or (Path.home() / ".gemini" / "antigravity" / "brain")
         )
         adapter = AntigravitySessionAdapter(
             root,
@@ -352,10 +351,7 @@ class BrainService:
             "stop_reason": None,
             "started_at": datetime.now(UTC).isoformat(),
         }
-        session_keys = {
-            _session_checkpoint_key(root, path)
-            for path in paths
-        }
+        session_keys = {_session_checkpoint_key(root, path) for path in paths}
 
         def refresh_pending_sessions() -> None:
             """Keep pending-session progress aligned with fallback semantics."""
@@ -448,9 +444,7 @@ class BrainService:
                     {
                         "brain.ingest.session_number": current_session_number,
                         "brain.ingest.records_in_session": current_records_count,
-                        "brain.ingest.records_checkpointed": len(
-                            current_record_state
-                        ),
+                        "brain.ingest.records_checkpointed": len(current_record_state),
                         "brain.ingest.lifecycle_state": "pending",
                     },
                 ):
@@ -466,15 +460,11 @@ class BrainService:
                 nonlocal session_failed, stop_requested
                 if not items:
                     return
-                extraction_candidates = sum(
-                    needs_call for _, _, _, needs_call in items
-                )
+                extraction_candidates = sum(needs_call for _, _, _, needs_call in items)
                 if extraction_candidates:
                     summary["llm_calls"] = int(summary["llm_calls"]) + 1
                 elapsed = elapsed_seconds()
-                remaining_seconds = (
-                    max_seconds - elapsed if max_seconds else None
-                )
+                remaining_seconds = max_seconds - elapsed if max_seconds else None
                 if extraction_candidates and remaining_seconds is not None:
                     if remaining_seconds <= 0:
                         summary["stop_reason"] = "max_seconds_reached"
@@ -520,8 +510,7 @@ class BrainService:
                             for _, record, _, _ in items
                         ]
                         _LOGGER.error(
-                            "Ingest batch failed session=%d/%d records=%d-%d "
-                            "error=%s",
+                            "Ingest batch failed session=%d/%d records=%d-%d error=%s",
                             current_session_number,
                             len(pending_paths),
                             items[0][0],
@@ -716,8 +705,7 @@ class BrainService:
             sessions_total = int(last_run.get("sessions_total", len(sessions)))
             completed = min(
                 sum(
-                    _checkpoint_entry_is_complete(entry)
-                    for entry in sessions.values()
+                    _checkpoint_entry_is_complete(entry) for entry in sessions.values()
                 ),
                 sessions_total,
             )
@@ -741,18 +729,18 @@ class BrainService:
         if paths:
             for path in paths:
                 entry = sessions.get(_session_checkpoint_key(root, path))
-                state = "ingested" if _checkpoint_matches(
-                    entry, _session_signature(path)
-                ) else "pending"
+                state = (
+                    "ingested"
+                    if _checkpoint_matches(entry, _session_signature(path))
+                    else "pending"
+                )
                 if isinstance(entry, dict) and entry.get("status") == "failed":
                     state = "failed"
                 session_state_counts[state] += 1
         elif sessions:
             for entry in sessions.values():
                 state = (
-                    "ingested"
-                    if _checkpoint_entry_is_complete(entry)
-                    else "pending"
+                    "ingested" if _checkpoint_entry_is_complete(entry) else "pending"
                 )
                 if isinstance(entry, dict) and entry.get("status") == "failed":
                     state = "failed"
@@ -1176,9 +1164,7 @@ class BrainService:
             )
         ]
         candidates = [
-            result
-            for result in results
-            if result.verification_status == "candidate"
+            result for result in results if result.verification_status == "candidate"
         ]
         pattern_results = [
             result
@@ -1211,9 +1197,7 @@ class BrainService:
             and not facts
         ):
             data = [
-                result
-                for result in results
-                if result.verification_status == "verified"
+                result for result in results if result.verification_status == "verified"
             ][:limit]
         if data:
             status = "degraded" if degraded else "ok"
@@ -1249,8 +1233,7 @@ class BrainService:
                     _compact_search_result(result) for result in context[:limit]
                 ],
                 "contradictory_results": [
-                    _compact_search_result(result)
-                    for result in contradictory[:limit]
+                    _compact_search_result(result) for result in contradictory[:limit]
                 ],
                 "related_candidates": (
                     [_compact_search_result(result) for result in candidates[:limit]]
@@ -1339,9 +1322,7 @@ class BrainService:
             fallback_results = self._lexical_search(literal_query, space_id, 50)
             known_ids = {result.note_id for result in lexical_results}
             lexical_results.extend(
-                result
-                for result in fallback_results
-                if result.note_id not in known_ids
+                result for result in fallback_results if result.note_id not in known_ids
             )
 
         try:
@@ -1385,9 +1366,7 @@ class BrainService:
             )
             known_ids = {result.note_id for result in lexical_results}
             lexical_results.extend(
-                result
-                for result in context_results
-                if result.note_id not in known_ids
+                result for result in context_results if result.note_id not in known_ids
             )
             semantic_results = []
         with operation_span(
@@ -1569,8 +1548,7 @@ class BrainService:
             ]
             source_refs_with_dates += len(dated_refs)
             source_refs_in_range += sum(
-                start_on <= reference.occurred_on <= end_on
-                for reference in dated_refs
+                start_on <= reference.occurred_on <= end_on for reference in dated_refs
             )
             if _dated_source_refs(note, start_on, end_on):
                 notes_in_range += 1
@@ -1743,8 +1721,7 @@ class BrainService:
         }
         if outcome not in valid_outcomes:
             raise ValueError(
-                "outcome must be one of: approved, rejected, executed_success, "
-                "failed."
+                "outcome must be one of: approved, rejected, executed_success, failed."
             )
         note = self.vault.get(workflow_id)
         if (
@@ -1786,9 +1763,7 @@ class BrainService:
                 "usage_count": note.metadata.usage_count,
                 "success_count": note.metadata.success_count,
                 "recommendation_state": note.metadata.recommendation_state,
-                "recommendation_level": _recommendation_level(
-                    note.metadata.confidence
-                ),
+                "recommendation_level": _recommendation_level(note.metadata.confidence),
                 "graph_synced": graph_synced,
             },
         )
@@ -1831,9 +1806,7 @@ class BrainService:
             note_ids=note_ids,
             relevance=relevance,
             reason=(
-                self.sanitizer.sanitize(reason).text[:1000].strip()
-                if reason
-                else ""
+                self.sanitizer.sanitize(reason).text[:1000].strip() if reason else ""
             ),
             space_id=space_id or self.settings.default_space,
             tags=normalized_tags,
@@ -2346,8 +2319,7 @@ class BrainService:
                 0.85,
                 max(
                     0.50,
-                    sum(note.metadata.confidence for note in examples)
-                    / len(examples),
+                    sum(note.metadata.confidence for note in examples) / len(examples),
                 ),
             )
             metadata = NoteMetadata(
@@ -2461,9 +2433,8 @@ class BrainService:
                     _effective_labels(note),
                 ):
                     continue
-                if (
-                    matched_tokens < 4
-                    and (analysis is None or not _scope_text_overlap(note, analysis))
+                if matched_tokens < 4 and (
+                    analysis is None or not _scope_text_overlap(note, analysis)
                 ):
                     continue
             else:
@@ -2663,8 +2634,7 @@ def _analyze_query(query: str) -> QueryAnalysis:
     entities = frozenset(
         token
         for token in tokens
-        if ("-" in token or "_" in token or "." in token)
-        and token not in actions
+        if ("-" in token or "_" in token or "." in token) and token not in actions
     )
     if tokens.intersection(_CONFIRMATION_WORDS):
         mode = "confirmation"
@@ -2743,9 +2713,7 @@ def _generic_result_matches_query(
         return False
     query_terms = _expanded_search_tokens(analysis.text) - {"pattern"}
     result_terms = _expanded_search_tokens(
-        " ".join(
-            [result.title, result.excerpt, result.pattern_key, *result.labels]
-        )
+        " ".join([result.title, result.excerpt, result.pattern_key, *result.labels])
     )
     overlap = query_terms.intersection(result_terms)
     domain_anchors = query_terms.intersection(
@@ -3046,9 +3014,9 @@ def _annotate_search_result(
             "direct"
             if action_match and object_match and (evidence_backed or confirmed_outcome)
             else "context_only"
-            if action_match or object_match or analysis.entities.intersection(
-                document_tokens
-            )
+            if action_match
+            or object_match
+            or analysis.entities.intersection(document_tokens)
             else "unknown"
         )
     else:
@@ -3178,9 +3146,7 @@ def _note_actions(note: VaultNote) -> list[ActionSignature]:
     for action in note.metadata.actions:
         actions.append(
             action.model_copy(
-                update={
-                    "canonical_action_key": canonicalize_action_key(action)
-                }
+                update={"canonical_action_key": canonicalize_action_key(action)}
             )
         )
     return actions
@@ -3517,9 +3483,7 @@ def _related_experiences(
         labels = set(_effective_labels(note))
         tokens = set(_tokens(f"{note.metadata.title}\n{note.content}"))
         claim_keys = {
-            claim.claim_key
-            for claim in note.metadata.claims
-            if claim.claim_key
+            claim.claim_key for claim in note.metadata.claims if claim.claim_key
         }
         note_actions = _note_actions(note)
         action_keys = {_action_group_key(action) for action in note_actions}
@@ -3575,10 +3539,7 @@ def _workflow_cards(notes: list[VaultNote]) -> str:
                 f"LABELS: {', '.join(_effective_labels(note))}",
                 "ACTIONS: "
                 + json.dumps(
-                    [
-                        action.model_dump(mode="json")
-                        for action in _note_actions(note)
-                    ],
+                    [action.model_dump(mode="json") for action in _note_actions(note)],
                     sort_keys=True,
                 ),
                 note.content[:1200],
@@ -3626,10 +3587,7 @@ def _valid_workflow_evidence(
             if claim.claim_type in {"user_decision", "tool_observation"}:
                 eligible_claims.add(claim.id)
             elif claim.claim_type == "assistant_suggestion" and (
-                (
-                    note in positive_notes
-                    and repeated_positive_support
-                )
+                (note in positive_notes and repeated_positive_support)
                 or _single_positive_action_support(note, proposal)
             ):
                 eligible_claims.add(claim.id)
@@ -3698,9 +3656,7 @@ def _single_positive_action_support(
 
 def _claim_has_supported_precision(claim: Claim) -> bool:
     """Return whether every claim evidence span has bounded source precision."""
-    return all(
-        evidence.precision in {"exact", "source"} for evidence in claim.evidence
-    )
+    return all(evidence.precision in {"exact", "source"} for evidence in claim.evidence)
 
 
 def _initial_workflow_confidence(
@@ -3741,9 +3697,7 @@ def _assess_workflow(
     content = note.content.lower()
     steps = note.metadata.workflow_steps
     covered_steps = sum(
-        bool(step.get("evidence_claim_ids"))
-        for step in steps
-        if isinstance(step, dict)
+        bool(step.get("evidence_claim_ids")) for step in steps if isinstance(step, dict)
     )
     step_coverage = covered_steps / len(steps) if steps else 0.0
     actionability = min(
@@ -3896,8 +3850,10 @@ def _same_action_route(
         return False
     proposal_tools = {_normalize_action_text(item) for item in proposal.tools}
     workflow_tools = {_normalize_action_text(item) for item in workflow.tools}
-    if proposal_tools and workflow_tools and not proposal_tools.intersection(
-        workflow_tools
+    if (
+        proposal_tools
+        and workflow_tools
+        and not proposal_tools.intersection(workflow_tools)
     ):
         return False
     return True
@@ -3914,8 +3870,13 @@ def _workflow_match(
     best: tuple[VaultNote | None, float, float] = (None, 0.0, 0.0)
     for workflow in workflows:
         workflow_actions = _note_actions(workflow)
-        if proposal_action and workflow_actions and not any(
-            _same_action_route(proposal_action, action) for action in workflow_actions
+        if (
+            proposal_action
+            and workflow_actions
+            and not any(
+                _same_action_route(proposal_action, action)
+                for action in workflow_actions
+            )
         ):
             continue
         title_ratio = SequenceMatcher(
@@ -4166,9 +4127,7 @@ def _note_fingerprint(note: VaultNote) -> str:
         "model_version": note.metadata.model_version,
         "source_ids": sorted(reference.id for reference in note.metadata.source_refs),
         "claims": [claim.model_dump(mode="json") for claim in note.metadata.claims],
-        "actions": [
-            action.model_dump(mode="json") for action in _note_actions(note)
-        ],
+        "actions": [action.model_dump(mode="json") for action in _note_actions(note)],
         "content": note.content,
     }
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))

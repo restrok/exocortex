@@ -345,6 +345,7 @@ def test_service_lifecycle_wrappers_and_failure_fallbacks(
         monkeypatch.setattr(service, "index_note", index_offline)
         remembered = service.remember("remembered", "", "work")
         assert remembered is note
+
     with pytest.raises(ValueError):
         service.notes_by_date(date(2026, 8, 2), date(2026, 8, 1))
     assert service.list_by_label([]) == []
