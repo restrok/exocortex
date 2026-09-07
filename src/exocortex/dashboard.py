@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Ultra-lightweight embedded dashboard for Exocortex."""
+"""Ultra-lightweight embedded dashboard for Exocortex with dynamic maps."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def get_dashboard_data(service: BrainService) -> dict[str, Any]:
             "updated_at": n.metadata.updated_at.isoformat() if n.metadata.updated_at else None,
             "preview": (n.content.strip().split("\n\n")[0][:180] + "...") if len(n.content.strip()) > 180 else n.content.strip(),
         }
-        for n in sorted_notes[:10]
+        for n in sorted_notes[:40]
     ]
 
     doctor_report = service.doctor()
@@ -106,8 +106,11 @@ def render_dashboard_html(service: BrainService) -> str:
       --indigo-glow: rgba(99, 102, 241, 0.15);
       --amber: #f59e0b;
       --amber-glow: rgba(245, 158, 11, 0.15);
-      --blue: #0ea5e9;
+      --blue: #3b82f6;
+      --purple: #8b5cf6;
       --rose: #f43f5e;
+      --cyan: #06b6d4;
+      --pink: #ec4899;
     }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -138,24 +141,23 @@ def render_dashboard_html(service: BrainService) -> str:
     .logo-badge {{
       width: 40px;
       height: 40px;
-      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
       border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 20px;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.35);
     }}
     .brand-title {{
-      font-size: 1.25rem;
+      font-size: 1.15rem;
       font-weight: 700;
       letter-spacing: -0.02em;
+      color: #fff;
     }}
     .brand-sub {{
       font-size: 0.8rem;
-      color: var(--text-dim);
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
+      color: var(--text-muted);
     }}
     .header-actions {{
       display: flex;
@@ -163,213 +165,314 @@ def render_dashboard_html(service: BrainService) -> str:
       gap: 16px;
     }}
     .pulse-badge {{
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 14px;
-      background: rgba(16, 185, 129, 0.08);
-      border: 1px solid rgba(16, 185, 129, 0.25);
+      padding: 6px 12px;
       border-radius: 9999px;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 600;
+      letter-spacing: 0.04em;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
       color: var(--emerald);
     }}
     .pulse-badge.degraded {{
-      background: rgba(245, 158, 11, 0.08);
-      border-color: rgba(245, 158, 11, 0.25);
-      color: var(--amber);
+      background: rgba(244, 63, 94, 0.1);
+      border-color: rgba(244, 63, 94, 0.2);
+      color: var(--rose);
     }}
     .dot {{
-      width: 8px;
-      height: 8px;
-      background: var(--emerald);
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      box-shadow: 0 0 8px var(--emerald);
-      animation: pulse 2s infinite ease-in-out;
-    }}
-    .pulse-badge.degraded .dot {{
-      background: var(--amber);
-      box-shadow: 0 0 8px var(--amber);
-    }}
-    @keyframes pulse {{
-      0%, 100% {{ opacity: 1; transform: scale(1); }}
-      50% {{ opacity: 0.4; transform: scale(0.85); }}
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
     }}
     .btn {{
       background: var(--card-bg);
-      color: var(--text);
       border: 1px solid var(--border);
-      padding: 7px 14px;
+      color: var(--text);
+      padding: 6px 12px;
       border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 500;
-      transition: all 0.15s ease;
-      display: flex;
+      cursor: pointer;
+      display: inline-flex;
       align-items: center;
       gap: 6px;
+      transition: all 0.15s ease;
     }}
     .btn:hover {{
       background: var(--card-hover);
-      border-color: var(--text-dim);
-    }}
-    .btn:active {{
-      transform: scale(0.98);
+      border-color: #3f3f46;
     }}
     .meta-time {{
       font-size: 0.75rem;
       color: var(--text-dim);
     }}
-
-    /* Stat Cards */
     .kpi-grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 16px;
-      margin-bottom: 24px;
+      margin-bottom: 28px;
     }}
     .card {{
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
-      transition: border-color 0.15s ease;
-    }}
-    .card:hover {{
-      border-color: #3f3f46;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }}
     .card-label {{
-      font-size: 0.78rem;
-      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      margin-bottom: 8px;
+      color: var(--text-muted);
+    }}
+    .card-value {{
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 8px 0;
+      color: #fff;
+    }}
+    .card-sub {{
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }}
+    .section-header-row {{
       display: flex;
       justify-content: space-between;
       align-items: center;
+      margin-top: 32px;
+      margin-bottom: 14px;
     }}
-    .card-value {{
-      font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
+    .section-title {{
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+    }}
+    .view-toggles {{
+      display: flex;
+      background: #18181b;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }}
+    .view-btn {{
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }}
+    .view-btn:hover {{
       color: var(--text);
     }}
-    .card-sub {{
-      font-size: 0.8rem;
-      color: var(--text-dim);
-      margin-top: 6px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }}
-
-    /* Components / Services */
-    .section-title {{
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin: 32px 0 16px 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .view-btn.active {{
+      background: #27272a;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4);
     }}
     .services-grid {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
+      gap: 12px;
+      margin-bottom: 12px;
     }}
     .service-card {{
       background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      gap: 12px;
+      border-radius: 10px;
+      padding: 14px 16px;
     }}
     .service-header {{
       display: flex;
       justify-content: space-between;
       align-items: center;
+      margin-bottom: 6px;
     }}
     .service-name {{
+      font-size: 0.85rem;
       font-weight: 600;
-      font-size: 0.9rem;
+      color: var(--text);
     }}
     .badge {{
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }}
     .badge-ok {{
-      background: var(--emerald-glow);
+      background: rgba(16, 185, 129, 0.1);
       color: var(--emerald);
-      border: 1px solid rgba(16, 185, 129, 0.3);
+      border: 1px solid rgba(16, 185, 129, 0.2);
     }}
     .badge-degraded {{
-      background: var(--amber-glow);
-      color: var(--amber);
-      border: 1px solid rgba(245, 158, 11, 0.3);
+      background: rgba(244, 63, 94, 0.1);
+      color: var(--rose);
+      border: 1px solid rgba(244, 63, 94, 0.2);
     }}
     .badge-type {{
-      background: rgba(99, 102, 241, 0.12);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.25);
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--indigo);
+      border: 1px solid rgba(99, 102, 241, 0.2);
     }}
     .badge-state {{
-      background: rgba(14, 165, 233, 0.12);
-      color: #38bdf8;
-      border: 1px solid rgba(14, 165, 233, 0.25);
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.2);
     }}
     .service-details {{
-      font-family: ui-monospace, monospace;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       color: var(--text-dim);
-      background: #0d0d10;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border-subtle);
-      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }}
-
-    /* Tags / Chips */
+    /* Proportional Bar / Treemap Card */
+    .breakdown-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 24px;
+    }}
+    .treemap-bar {{
+      display: flex;
+      height: 18px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #1c1c21;
+      gap: 2px;
+      margin-bottom: 14px;
+    }}
+    .treemap-seg {{
+      height: 100%;
+      cursor: pointer;
+      position: relative;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }}
+    .treemap-seg:hover {{
+      opacity: 0.85;
+      transform: scaleY(1.15);
+      z-index: 2;
+    }}
     .chip-container {{
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 24px;
     }}
     .chip {{
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
       background: var(--card-bg);
       border: 1px solid var(--border);
-      padding: 6px 12px;
       border-radius: 8px;
-      font-size: 0.8rem;
+      padding: 6px 12px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }}
+    .chip:hover {{
+      border-color: #52525b;
+      background: var(--card-hover);
+      color: #fff;
+    }}
+    .chip.active {{
+      background: rgba(99, 102, 241, 0.15);
+      border-color: var(--indigo);
+      color: #fff;
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+    }}
+    .chip-dot {{
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
     }}
     .chip-count {{
-      background: var(--border);
-      color: var(--text);
-      padding: 1px 6px;
-      border-radius: 4px;
+      background: #18181b;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 0.72rem;
       font-weight: 600;
-      font-size: 0.75rem;
+      color: var(--text);
     }}
-
-    /* Notes List */
+    /* Constellation Graph Card */
+    .graph-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }}
+    .graph-instructions {{
+      position: absolute;
+      top: 14px;
+      right: 18px;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      pointer-events: none;
+      background: rgba(18, 18, 21, 0.85);
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+    }}
+    #graph-canvas {{
+      display: block;
+      width: 100%;
+      height: 320px;
+      border-radius: 8px;
+      background: radial-gradient(circle at center, #18181f 0%, #0c0c0e 100%);
+      cursor: grab;
+    }}
+    #graph-canvas:active {{
+      cursor: grabbing;
+    }}
+    /* Notes list & filter banner */
+    .filter-banner {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 8px 14px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 0.78rem;
+      color: var(--text);
+    }}
+    .clear-btn {{
+      background: none;
+      border: none;
+      color: var(--indigo);
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }}
+    .clear-btn:hover {{
+      text-decoration: underline;
+    }}
     .notes-list {{
       display: flex;
       flex-direction: column;
@@ -481,27 +584,220 @@ def render_dashboard_html(service: BrainService) -> str:
     <div class="section-title">Infrastructure & Services</div>
     <div class="services-grid" id="services-grid"></div>
 
-    <!-- Knowledge Taxonomy -->
-    <div class="section-title">Memory Breakdown</div>
-    <div class="chip-container" id="types-container"></div>
+    <!-- Knowledge Taxonomy & Dynamic Maps -->
+    <div class="section-header-row">
+      <div class="section-title">Memory Breakdown & Dynamic Maps</div>
+      <div class="view-toggles">
+        <button id="btn-view-bar" class="view-btn active" onclick="switchView('bar')">📊 Proportional Bar</button>
+        <button id="btn-view-graph" class="view-btn" onclick="switchView('graph')">🕸️ Constellation Graph</button>
+      </div>
+    </div>
+
+    <!-- View 1: Proportional Treemap Bar -->
+    <div id="view-bar-container" class="breakdown-card">
+      <div class="treemap-bar" id="treemap-bar" title="Click any category to filter"></div>
+      <div class="chip-container" id="types-container"></div>
+    </div>
+
+    <!-- View 2: Constellation Graph Canvas -->
+    <div id="view-graph-container" class="graph-card" style="display: none;">
+      <div class="graph-instructions">Drag nodes to explore • Click category node to filter</div>
+      <canvas id="graph-canvas"></canvas>
+    </div>
+
+    <!-- Filter Banner (Conditional) -->
+    <div id="filter-banner" class="filter-banner" style="display: none;">
+      <span>Filtering notes by <strong id="filter-name"></strong></span>
+      <button class="clear-btn" onclick="clearFilter()">Clear filter ✕</button>
+    </div>
 
     <!-- Recent Memories -->
-    <div class="section-title">Recent Vault Activity</div>
+    <div class="section-title" style="margin-top: 24px;">Recent Vault Activity</div>
     <div class="notes-list" id="notes-list"></div>
   </div>
 
   <script>
     let currentData = {initial_json};
+    let activeFilter = null;
+    let activeView = 'bar';
+
+    const TYPE_COLORS = {{
+      'task': '#3b82f6',        // Blue
+      'pattern': '#8b5cf6',     // Violet
+      'decision': '#10b981',    // Emerald
+      'incident': '#f43f5e',    // Rose
+      'project': '#f59e0b',     // Amber
+      'system': '#06b6d4',      // Cyan
+      'command': '#ec4899',     // Pink
+      'repository': '#64748b',  // Slate
+      'penalized': '#a1a1aa',   // Zinc
+      'active': '#10b981',      // Emerald
+      'quarantined': '#eab308', // Yellow
+      'superseded': '#71717a'   // Zinc dark
+    }};
+
+    function getColor(key) {{
+      return TYPE_COLORS[key] || '#6366f1';
+    }}
+
+    function switchView(view) {{
+      activeView = view;
+      const barContainer = document.getElementById('view-bar-container');
+      const graphContainer = document.getElementById('view-graph-container');
+      const btnBar = document.getElementById('btn-view-bar');
+      const btnGraph = document.getElementById('btn-view-graph');
+
+      if (view === 'bar') {{
+        barContainer.style.display = 'block';
+        graphContainer.style.display = 'none';
+        btnBar.className = 'view-btn active';
+        btnGraph.className = 'view-btn';
+      }} else {{
+        barContainer.style.display = 'none';
+        graphContainer.style.display = 'block';
+        btnBar.className = 'view-btn';
+        btnGraph.className = 'view-btn active';
+        initCanvasGraph();
+      }}
+    }}
+
+    function toggleFilter(type) {{
+      if (activeFilter === type) {{
+        activeFilter = null;
+      }} else {{
+        activeFilter = type;
+      }}
+      renderFilterBanner();
+      renderBreakdown(currentData);
+      renderNotes(currentData);
+      if (activeView === 'graph') {{
+        drawGraph();
+      }}
+    }}
+
+    function clearFilter() {{
+      activeFilter = null;
+      renderFilterBanner();
+      renderBreakdown(currentData);
+      renderNotes(currentData);
+      if (activeView === 'graph') {{
+        drawGraph();
+      }}
+    }}
+
+    function renderFilterBanner() {{
+      const banner = document.getElementById('filter-banner');
+      const filterName = document.getElementById('filter-name');
+      if (activeFilter) {{
+        banner.style.display = 'flex';
+        filterName.textContent = '#' + activeFilter;
+      }} else {{
+        banner.style.display = 'none';
+      }}
+    }}
+
+    function renderBreakdown(data) {{
+      const bar = document.getElementById('treemap-bar');
+      const typesContainer = document.getElementById('types-container');
+      bar.innerHTML = '';
+      typesContainer.innerHTML = '';
+
+      const total = data.vault.total_notes || 1;
+      const types = data.vault.by_type || {{}};
+      const states = data.vault.by_state || {{}};
+
+      // Render Proportional Bar
+      for (const [type, count] of Object.entries(types)) {{
+        const pct = ((count / total) * 100).toFixed(1);
+        const seg = document.createElement('div');
+        seg.className = 'treemap-seg';
+        seg.style.flex = count;
+        seg.style.background = getColor(type);
+        seg.title = `${{type}}: ${{count}} (${{pct}}%) - Click to filter`;
+        if (activeFilter && activeFilter !== type) {{
+          seg.style.opacity = '0.25';
+        }}
+        seg.onclick = () => toggleFilter(type);
+        bar.appendChild(seg);
+      }}
+
+      // Render Chips for Types
+      for (const [type, count] of Object.entries(types)) {{
+        const chip = document.createElement('div');
+        const isActive = activeFilter === type;
+        chip.className = isActive ? 'chip active' : 'chip';
+        const color = getColor(type);
+        chip.innerHTML = `
+          <span class="chip-dot" style="background: ${{color}};"></span>
+          <span>${{type}}</span>
+          <span class="chip-count">${{count}}</span>
+        `;
+        chip.onclick = () => toggleFilter(type);
+        typesContainer.appendChild(chip);
+      }}
+
+      // Render Chips for States
+      for (const [state, count] of Object.entries(states)) {{
+        const chip = document.createElement('div');
+        const isActive = activeFilter === state;
+        chip.className = isActive ? 'chip active' : 'chip';
+        chip.innerHTML = `
+          <span>⚡ ${{state}}</span>
+          <span class="chip-count">${{count}}</span>
+        `;
+        chip.onclick = () => toggleFilter(state);
+        typesContainer.appendChild(chip);
+      }}
+    }}
+
+    function renderNotes(data) {{
+      const notesList = document.getElementById('notes-list');
+      notesList.innerHTML = '';
+
+      let notes = data.recent_notes || [];
+      if (activeFilter) {{
+        notes = notes.filter(n => n.type === activeFilter || n.state === activeFilter);
+      }}
+
+      if (notes.length === 0) {{
+        const msg = activeFilter 
+          ? `No recent memories found with filter: #${{activeFilter}}`
+          : 'No memories recorded yet.';
+        notesList.innerHTML = `<div style="color: var(--text-dim); padding: 16px;">${{msg}}</div>`;
+        return;
+      }}
+
+      notes.forEach(note => {{
+        const item = document.createElement('div');
+        item.className = 'note-item';
+        const labelsHtml = (note.labels || []).map(l => `<span class="label-tag">#${{l}}</span>`).join(' ');
+        const dateStr = note.updated_at ? new Date(note.updated_at).toLocaleDateString() : '';
+
+        item.innerHTML = `
+          <div class="note-header">
+            <div class="note-title">${{note.title}}</div>
+            <div class="note-meta">
+              <span class="badge badge-type" style="background: ${{getColor(note.type)}}18; color: ${{getColor(note.type)}}; border-color: ${{getColor(note.type)}}33;">${{note.type}}</span>
+              <span class="badge badge-state">${{note.state}}</span>
+              <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">${{note.confidence}}</span>
+              <span class="time-tag">${{dateStr}}</span>
+            </div>
+          </div>
+          <div class="note-preview">${{note.preview || 'No preview available.'}}</div>
+          <div class="labels-row">${{labelsHtml}}</div>
+        `;
+        notesList.appendChild(item);
+      }});
+    }}
 
     function render(data) {{
-      // Update status
+      currentData = data;
       const isOk = data.status === 'ok';
       const statusBadge = document.getElementById('status-badge');
       const statusText = document.getElementById('status-text');
       statusBadge.className = isOk ? 'pulse-badge' : 'pulse-badge degraded';
       statusText.textContent = isOk ? 'SYSTEM OPERATIONAL' : 'SYSTEM DEGRADED';
 
-      // Last updated
       const now = new Date();
       document.getElementById('last-updated').textContent = 'Synced ' + now.toLocaleTimeString();
 
@@ -535,50 +831,249 @@ def render_dashboard_html(service: BrainService) -> str:
         servicesGrid.appendChild(card);
       }}
 
-      // Types & States chips
-      const typesContainer = document.getElementById('types-container');
-      typesContainer.innerHTML = '';
-      for (const [type, count] of Object.entries(data.vault.by_type)) {{
-        const chip = document.createElement('div');
-        chip.className = 'chip';
-        chip.innerHTML = `<span>📂 ${{type}}</span><span class="chip-count">${{count}}</span>`;
-        typesContainer.appendChild(chip);
+      renderBreakdown(data);
+      renderNotes(data);
+      if (activeView === 'graph') {{
+        initCanvasGraph();
       }}
-      for (const [state, count] of Object.entries(data.vault.by_state)) {{
-        const chip = document.createElement('div');
-        chip.className = 'chip';
-        chip.innerHTML = `<span>⚡ ${{state}}</span><span class="chip-count">${{count}}</span>`;
-        typesContainer.appendChild(chip);
-      }}
+    }}
 
-      // Recent Notes
-      const notesList = document.getElementById('notes-list');
-      notesList.innerHTML = '';
-      if (!data.recent_notes || data.recent_notes.length === 0) {{
-        notesList.innerHTML = '<div style="color: var(--text-dim); padding: 16px;">No memories recorded yet.</div>';
-      }} else {{
-        data.recent_notes.forEach(note => {{
-          const item = document.createElement('div');
-          item.className = 'note-item';
-          const labelsHtml = (note.labels || []).map(l => `<span class="label-tag">#${{l}}</span>`).join(' ');
-          const dateStr = note.updated_at ? new Date(note.updated_at).toLocaleDateString() : '';
+    // ==========================================
+    // Interactive HTML5 Constellation Graph (Zero Dependencies)
+    // ==========================================
+    let canvas, ctx;
+    let graphNodes = [];
+    let hoveredNode = null;
+    let draggedNode = null;
+    let graphAnimId = null;
 
-          item.innerHTML = `
-            <div class="note-header">
-              <div class="note-title">${{note.title}}</div>
-              <div class="note-meta">
-                <span class="badge badge-type">${{note.type}}</span>
-                <span class="badge badge-state">${{note.state}}</span>
-                <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">${{note.confidence}}</span>
-                <span class="time-tag">${{dateStr}}</span>
-              </div>
-            </div>
-            <div class="note-preview">${{note.preview || 'No preview available.'}}</div>
-            <div class="labels-row">${{labelsHtml}}</div>
-          `;
-          notesList.appendChild(item);
+    function initCanvasGraph() {{
+      canvas = document.getElementById('graph-canvas');
+      if (!canvas) return;
+      ctx = canvas.getContext('2d');
+
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = 320 * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = rect.width;
+      const height = 320;
+      const centerX = width / 2;
+      const centerY = height / 2;
+
+      const types = currentData.vault.by_type || {{}};
+      const keys = Object.keys(types);
+      const angleStep = (Math.PI * 2) / (keys.length || 1);
+
+      graphNodes = [];
+      // Central Core Node
+      graphNodes.push({{
+        id: 'core',
+        label: 'EXOCORTEX',
+        count: currentData.vault.total_notes,
+        x: centerX,
+        y: centerY,
+        vx: 0,
+        vy: 0,
+        radius: 28,
+        color: '#6366f1',
+        isCenter: true,
+        type: null
+      }});
+
+      // Category Satellite Nodes
+      keys.forEach((key, idx) => {{
+        const count = types[key];
+        const dist = 110 + (idx % 2 === 0 ? 15 : -15);
+        const angle = idx * angleStep;
+        const rad = Math.max(14, Math.min(34, 12 + Math.sqrt(count) * 1.5));
+        graphNodes.push({{
+          id: key,
+          label: key,
+          count: count,
+          x: centerX + Math.cos(angle) * dist,
+          y: centerY + Math.sin(angle) * dist,
+          targetDist: dist,
+          angle: angle,
+          vx: (Math.random() - 0.5) * 2,
+          vy: (Math.random() - 0.5) * 2,
+          radius: rad,
+          color: getColor(key),
+          isCenter: false,
+          type: key
         }});
+      }});
+
+      setupGraphEvents(canvas, rect);
+      if (!graphAnimId) {{
+        animateGraph();
       }}
+    }}
+
+    function setupGraphEvents(c, rect) {{
+      c.onmousemove = (e) => {{
+        const b = c.getBoundingClientRect();
+        const mx = e.clientX - b.left;
+        const my = e.clientY - b.top;
+
+        if (draggedNode) {{
+          draggedNode.x = mx;
+          draggedNode.y = my;
+          return;
+        }}
+
+        hoveredNode = null;
+        for (let i = graphNodes.length - 1; i >= 0; i--) {{
+          const n = graphNodes[i];
+          const dist = Math.hypot(n.x - mx, n.y - my);
+          if (dist <= n.radius + 4) {{
+            hoveredNode = n;
+            c.style.cursor = 'pointer';
+            return;
+          }}
+        }}
+        c.style.cursor = 'grab';
+      }};
+
+      c.onmousedown = (e) => {{
+        if (hoveredNode) {{
+          draggedNode = hoveredNode;
+          c.style.cursor = 'grabbing';
+        }}
+      }};
+
+      window.onmouseup = () => {{
+        draggedNode = null;
+      }};
+
+      c.onclick = (e) => {{
+        if (hoveredNode && !hoveredNode.isCenter) {{
+          toggleFilter(hoveredNode.type);
+        }} else if (hoveredNode && hoveredNode.isCenter) {{
+          clearFilter();
+        }}
+      }};
+    }}
+
+    function animateGraph() {{
+      const width = canvas.width / (window.devicePixelRatio || 1);
+      const height = canvas.height / (window.devicePixelRatio || 1);
+      const centerNode = graphNodes[0];
+
+      if (centerNode && !draggedNode) {{
+        centerNode.x += (width / 2 - centerNode.x) * 0.1;
+        centerNode.y += (height / 2 - centerNode.y) * 0.1;
+      }}
+
+      // Physics Simulation (Springs + Repulsion + Centering)
+      for (let i = 1; i < graphNodes.length; i++) {{
+        const node = graphNodes[i];
+        if (node === draggedNode) continue;
+
+        // Attract toward center target distance
+        const dx = centerNode.x - node.x;
+        const dy = centerNode.y - node.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const targetDist = node.targetDist || 110;
+        const force = (dist - targetDist) * 0.015;
+        node.vx += (dx / dist) * force;
+        node.vy += (dy / dist) * force;
+
+        // Repulsion between satellites
+        for (let j = 1; j < graphNodes.length; j++) {{
+          if (i === j) continue;
+          const other = graphNodes[j];
+          const ox = other.x - node.x;
+          const oy = other.y - node.y;
+          const odist = Math.hypot(ox, oy) || 1;
+          const minDist = node.radius + other.radius + 15;
+          if (odist < minDist) {{
+            const rep = (minDist - odist) * 0.04;
+            node.vx -= (ox / odist) * rep;
+            node.vy -= (oy / odist) * rep;
+          }}
+        }}
+
+        // Damping
+        node.vx *= 0.88;
+        node.vy *= 0.88;
+        node.x += node.vx;
+        node.y += node.vy;
+
+        // Bounds
+        node.x = Math.max(node.radius, Math.min(width - node.radius, node.x));
+        node.y = Math.max(node.radius, Math.min(height - node.radius, node.y));
+      }}
+
+      drawGraph();
+      graphAnimId = requestAnimationFrame(animateGraph);
+    }}
+
+    function drawGraph() {{
+      if (!ctx || !canvas) return;
+      const width = canvas.width / (window.devicePixelRatio || 1);
+      const height = canvas.height / (window.devicePixelRatio || 1);
+      ctx.clearRect(0, 0, width, height);
+
+      const centerNode = graphNodes[0];
+      if (!centerNode) return;
+
+      // Draw tension links
+      for (let i = 1; i < graphNodes.length; i++) {{
+        const node = graphNodes[i];
+        const isLinkedActive = !activeFilter || activeFilter === node.type;
+
+        ctx.beginPath();
+        ctx.moveTo(centerNode.x, centerNode.y);
+        ctx.lineTo(node.x, node.y);
+        ctx.strokeStyle = isLinkedActive ? 'rgba(99, 102, 241, 0.28)' : 'rgba(255, 255, 255, 0.04)';
+        ctx.lineWidth = isLinkedActive ? 1.5 : 0.8;
+        ctx.stroke();
+      }}
+
+      // Draw Nodes
+      graphNodes.forEach(node => {{
+        const isSelected = activeFilter === node.type;
+        const isHovered = hoveredNode === node;
+
+        // Outer Glow for Selected or Hovered
+        if (isSelected || isHovered) {{
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius + 6, 0, Math.PI * 2);
+          ctx.fillStyle = node.color + '33';
+          ctx.fill();
+        }}
+
+        // Main Node Body
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        ctx.fillStyle = node.color;
+        ctx.shadowColor = node.color;
+        ctx.shadowBlur = isHovered || isSelected ? 18 : 6;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Inner Border
+        ctx.strokeStyle = '#ffffff44';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Node Label
+        ctx.fillStyle = '#ffffff';
+        ctx.font = node.isCenter ? 'bold 10px monospace' : '600 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const labelText = node.isCenter ? 'CORE' : node.label;
+        ctx.fillText(labelText, node.x, node.y - (node.isCenter ? 0 : 5));
+
+        if (!node.isCenter) {{
+          ctx.font = '9px monospace';
+          ctx.fillStyle = '#ffffffcc';
+          ctx.fillText(node.count, node.x, node.y + 7);
+        }}
+      }});
     }}
 
     async function refreshData() {{
