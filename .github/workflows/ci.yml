@@ -27,10 +27,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Run Ruff Lint
-        run: uv run ruff check src tests
+        run: uv run --extra dev ruff check src tests
 
       - name: Run Ruff Format Check
-        run: uv run ruff format --check src tests
+        run: uv run --extra dev ruff format --check src tests
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -52,7 +52,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Run Pytest Suite
-        run: uv run pytest
+        run: uv run --extra dev pytest
 
   build-and-push-docker:
     name: Build and Push Docker Image
