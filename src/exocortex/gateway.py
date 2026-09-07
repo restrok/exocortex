@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import signal
 import threading
 import time
@@ -82,7 +83,7 @@ class GatewayClient:
             timeout=self._request_timeout(),
             json={
                 "model": self._settings.llm_model,
-                "response_format": {"type": "json_object"},
+                **self._response_format_payload(),
                 "messages": [
                     {
                         "role": "system",
@@ -179,7 +180,7 @@ class GatewayClient:
             headers=self._headers,
             json={
                 "model": self._settings.llm_model,
-                "response_format": {"type": "json_object"},
+                **self._response_format_payload(),
                 "messages": [
                     {
                         "role": "system",
@@ -254,7 +255,7 @@ class GatewayClient:
                 )
             if not isinstance(content, str):
                 raise _BatchContractError("message_content_not_text")
-            batch_payload = json.loads(_clean_json(content))
+            batch_payload = json.loads(_clean_json(content), strict=False)
             if not isinstance(batch_payload, dict):
                 raise _BatchContractError("batch_payload_not_object")
             items = batch_payload.get("items")
@@ -286,6 +287,9 @@ class GatewayClient:
                     continue
                 source_id = item.get("source_id")
                 knowledge = item.get("knowledge")
+                has_fields = "title" in item or "summary" in item
+                if knowledge is None and isinstance(item, dict) and has_fields:
+                    knowledge = {k: v for k, v in item.items() if k != "source_id"}
                 if not isinstance(source_id, str) or not isinstance(knowledge, dict):
                     item_error = _BatchContractError(
                         "item_shape_invalid",
@@ -418,7 +422,7 @@ class GatewayClient:
                     if self._settings.reflection_reasoning_effort
                     else {}
                 ),
-                "response_format": {"type": "json_object"},
+                **self._response_format_payload(),
                 "messages": [
                     {
                         "role": "system",
@@ -510,8 +514,8 @@ class GatewayClient:
         response = self._request(
             "embed_batch",
             "POST",
-            f"{self._base_url}/embeddings",
-            headers=self._headers,
+            f"{self._embedding_base_url}/embeddings",
+            headers=self._embedding_headers,
             json={
                 "model": self._settings.embedding_model,
                 "input": texts,
@@ -548,6 +552,21 @@ class GatewayClient:
     def _base_url(self) -> str:
         """Return the gateway URL without a trailing slash."""
         return self._settings.llm_base_url.rstrip("/")
+
+    @property
+    def _embedding_base_url(self) -> str:
+        """Return the base URL for embeddings, defaulting to llm_base_url."""
+        if self._settings.embedding_base_url:
+            return self._settings.embedding_base_url.rstrip("/")
+        return self._base_url
+
+    @property
+    def _embedding_headers(self) -> dict[str, str]:
+        """Return request headers for embedding requests."""
+        if self._settings.embedding_api_key is not None:
+            token = self._settings.embedding_api_key.get_secret_value()
+            return {"Authorization": f"Bearer {token}"} if token else {}
+        return self._headers
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -669,6 +688,14 @@ class GatewayClient:
                 time.sleep(delay)
         raise RuntimeError("Gateway request retry loop exited unexpectedly.")
 
+    def _response_format_payload(self) -> dict[str, object]:
+        rf = getattr(self._settings, "llm_response_format", "json_object")
+        if rf == "none":
+            return {}
+        if rf == "text":
+            return {"response_format": {"type": "text"}}
+        return {"response_format": {"type": "json_object"}}
+
     def _request_timeout(self, requested: float | None = None) -> float:
         """Return the configured total wall-clock budget for one request."""
         configured = (
@@ -720,17 +747,28 @@ def _wall_clock_timeout(seconds: float | None):
 
 def _clean_json(content: str) -> str:
     """Extract an object payload from a model response that may include prose."""
+    cleaned = content.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = cleaned.strip()
+
     try:
-        json.loads(content)
-        return content
+        json.loads(cleaned, strict=False)
+        return cleaned
     except json.JSONDecodeError:
-        start = content.find("{")
-        end = content.rfind("}")
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
         if start < 0 or end < start:
             raise GatewayError(
                 "Gateway response did not include a JSON object."
             ) from None
-    return content[start : end + 1]
+        candidate = cleaned[start : end + 1]
+        try:
+            json.loads(candidate, strict=False)
+            return candidate
+        except json.JSONDecodeError:
+            fixed = re.sub(r",\s*([}\]])", r"\1", candidate)
+            return fixed
 
 
 class _BatchContractError(ValueError):
@@ -942,9 +980,19 @@ def _normalize_knowledge_payload(
         payload["claims"] = [claims]
 
     if isinstance(payload.get("claims"), list):
-        for claim in payload["claims"]:
+        normalized_claims = []
+        for claim_idx, claim in enumerate(payload["claims"], 1):
+            if isinstance(claim, str):
+                claim = {"text": claim}
             if not isinstance(claim, dict):
                 continue
+            claim = dict(claim)
+            claim.setdefault("id", f"c{claim_idx}")
+            if not claim.get("claim_key"):
+                claim_text = str(claim.get("text") or "")
+                tokens = re.findall(r"[a-zA-Z0-9]+", claim_text.lower())
+                words = [w for w in tokens if len(w) > 2][:5]
+                claim["claim_key"] = "_".join(words) or f"claim_{claim_idx}"
             claim["polarity"] = _canonical_claim_polarity(claim.get("polarity"))
             claim["claim_type"] = _canonical_claim_type(claim.get("claim_type"))
             claim["confidence"] = _canonical_confidence(claim.get("confidence"))
@@ -970,6 +1018,8 @@ def _normalize_knowledge_payload(
                 for evidence_item in claim["evidence"]:
                     if isinstance(evidence_item, dict):
                         evidence_item.setdefault("source_id", source_id)
+            normalized_claims.append(claim)
+        payload["claims"] = normalized_claims
 
     return payload
 

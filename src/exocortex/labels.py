@@ -22,17 +22,30 @@ _CATEGORIES = {
     "work_type",
 }
 _KNOWN_TECHNOLOGIES = {
+    "ansible",
+    "bash",
     "cloud-run",
     "dataform",
     "docker",
+    "fastapi",
     "gcp",
+    "git",
+    "github",
     "gitlab",
     "gitlab-ci",
     "grafana",
+    "helm",
+    "kubernetes",
+    "linux",
+    "mikrotik",
     "neo4j",
     "opentelemetry",
+    "postgres",
+    "postgresql",
     "python",
+    "redis",
     "terraform",
+    "webflow",
 }
 _ALIASES = {
     "ci/cd": "topic:cicd",
@@ -46,6 +59,14 @@ _ALIASES = {
     "acme": "organization:acme-corp",
     "acme corp": "organization:acme-corp",
     "acmecorp": "organization:acme-corp",
+    "k8s": "technology:kubernetes",
+    "kube": "technology:kubernetes",
+    "microtik": "technology:mikrotik",
+    "post-mortem": "topic:postmortem",
+    "post mortem": "topic:postmortem",
+    "live coding": "topic:live-coding",
+    "system design": "topic:architecture",
+    "system-design": "topic:architecture",
 }
 
 
@@ -119,3 +140,41 @@ def _normalize_text(value: str) -> str:
 def _slug(value: str) -> str:
     """Create a stable label slug."""
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "unknown"
+
+
+def infer_labels(
+    title: str,
+    text: str = "",
+    registry: LabelRegistry | None = None,
+) -> list[str]:
+    """Infer deterministic labels when gateway labels are absent."""
+    content = f"{title} {text[:1500]}".lower()
+    inferred: set[str] = set()
+
+    for tech in _KNOWN_TECHNOLOGIES:
+        pattern = r"\b" + re.escape(tech).replace(r"\-", r"[- ]") + r"\b"
+        if re.search(pattern, content):
+            inferred.add(f"technology:{tech}")
+
+    for topic_kw in {
+        "postmortem",
+        "incident",
+        "live-coding",
+        "architecture",
+        "debugging",
+        "networking",
+        "cicd",
+        "testing",
+        "asymmetric-routing",
+        "macvlan",
+        "sre",
+        "multi-tenancy",
+        "observability",
+    }:
+        pattern = r"\b" + re.escape(topic_kw).replace(r"\-", r"[- ]") + r"\b"
+        if re.search(pattern, content):
+            inferred.add(f"topic:{topic_kw}")
+
+    if registry is not None:
+        return registry.canonicalize(list(inferred))
+    return sorted(inferred)

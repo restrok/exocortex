@@ -18,6 +18,7 @@ def make_settings(data_dir: Path) -> Settings:
         BRAIN_REFLECTION_REASONING_EFFORT="high",
         BRAIN_EMBEDDING_MODEL="text-embedding-3-large",
         BRAIN_LLM_API_KEY="test-key",
+        BRAIN_LLM_RESPONSE_FORMAT="json_object",
         NEO4J_URI="bolt://neo4j.test:7687",
         NEO4J_USERNAME="neo4j",
         NEO4J_PASSWORD="test-password",

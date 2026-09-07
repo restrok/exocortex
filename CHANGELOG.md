@@ -4,6 +4,26 @@ All notable changes to Codex Brain are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Embedded zero-dependency dark-mode web dashboard accessible at `/dashboard`
+  and `/` on the MCP port (`8765`), with real-time Vault statistics, component
+  health indicators, and a JSON metrics endpoint at `/api/dashboard`.
+- Decoupled embedding configuration via `BRAIN_EMBEDDING_BASE_URL`, allowing
+  hybrid deployments (e.g., high-speed cloud LLM extraction combined with local
+  low-latency vector embeddings via Ollama `nomic-embed-text`).
+- Dynamic & Semantic Chunking Engine for Antigravity session transcript ingestion
+  featuring atomic tool execution bundling, adaptive payload compaction, intent
+  shift detection, and cosine-similarity drift segmentation.
+- Resumable Antigravity ingestion CLI commands and checkpoints tracking content
+  hashes per session.
+
+### Changed
+
+- Enhanced MCP server routing to register custom HTTP endpoints without
+  interfering with standard Model Context Protocol transport streams.
+
+
 ## [v0.1.9] - 2026-08-11
 
 ### Added

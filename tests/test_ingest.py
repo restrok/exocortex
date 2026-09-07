@@ -610,3 +610,22 @@ def test_prompt_injection_source_is_quarantined(tmp_path: Path) -> None:
     assert result.status == "promoted_quarantined"
     assert note is not None
     assert note.metadata.recommendation_state == "quarantined"
+
+
+def test_direct_memory_is_active_and_has_inferred_labels(tmp_path: Path) -> None:
+    """Direct memory retains active recommendation state and inferred labels."""
+    from exocortex.service import BrainService
+    from tests.conftest import make_settings
+
+    service = BrainService(make_settings(tmp_path / "brain"))
+    note, _ = service._remember(
+        content="Debugged Webflow rate limits with Python and Docker.",
+        title="Webflow Live Coding Postmortem",
+        space_id="work",
+    )
+
+    assert note.metadata.recommendation_state == "active"
+    assert note.metadata.confidence >= 0.8
+    assert "technology:webflow" in note.metadata.labels
+    assert "technology:python" in note.metadata.labels
+    assert "topic:postmortem" in note.metadata.labels

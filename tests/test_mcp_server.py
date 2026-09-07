@@ -34,6 +34,7 @@ def test_mcp_server_exposes_grounded_tools(tmp_path: Path) -> None:
         "brain_record_search_feedback",
         "brain_health",
         "brain_learning_status",
+        "brain_ingest_session",
         "brain_remember",
     ]
 
@@ -191,3 +192,13 @@ def test_mcp_tools_return_v2_envelopes_and_validate_dates(
         assert str(error) == "Dates must use YYYY-MM-DD."
     else:
         raise AssertionError("invalid dates should be rejected")
+
+
+def test_mcp_server_registers_dashboard_routes(tmp_path: Path) -> None:
+    """The MCP server registers /, /dashboard, and /api/dashboard custom routes."""
+    server = create_server(make_settings(tmp_path / "brain"))
+    routes = [route.path for route in server._custom_starlette_routes]
+    assert "/" in routes
+    assert "/dashboard" in routes
+    assert "/api/dashboard" in routes
+

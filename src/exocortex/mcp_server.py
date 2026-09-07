@@ -8,8 +8,11 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse
 
 from exocortex.config import Settings
+from exocortex.dashboard import get_dashboard_data, render_dashboard_html
 from exocortex.models import Claim, EvidenceSpan, ResponseEnvelope, VaultNote
 from exocortex.service import BrainService
 
@@ -91,6 +94,21 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         streamable_http_path="/mcp",
         stateless_http=True,
     )
+
+    @mcp.custom_route("/", methods=["GET"])
+    async def dashboard_root(request: Request) -> HTMLResponse:
+        """Serve the ultra-lightweight dark-mode Exocortex dashboard."""
+        return HTMLResponse(render_dashboard_html(service))
+
+    @mcp.custom_route("/dashboard", methods=["GET"])
+    async def dashboard_view(request: Request) -> HTMLResponse:
+        """Serve the ultra-lightweight dark-mode Exocortex dashboard."""
+        return HTMLResponse(render_dashboard_html(service))
+
+    @mcp.custom_route("/api/dashboard", methods=["GET"])
+    async def api_dashboard(request: Request) -> JSONResponse:
+        """Return real-time metrics and recent activity for the dashboard."""
+        return JSONResponse(get_dashboard_data(service))
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -380,6 +398,27 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             method="learning-status",
             data=service.learning_status(),
         ).model_dump(mode="json")
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    def brain_ingest_session(
+        transcript_jsonl: str,
+        conversation_id: str,
+        space_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest transcript JSONL over MCP without filesystem mounts."""
+        response = service.ingest_antigravity_transcript(
+            transcript_jsonl=transcript_jsonl,
+            conversation_id=conversation_id,
+            space_id=space_id or settings.default_space,
+        )
+        return response.model_dump(mode="json")
 
     @mcp.tool(
         annotations=ToolAnnotations(

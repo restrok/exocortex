@@ -1,5 +1,8 @@
 # Codex Brain: Experiences, Labels, and Nightly Consolidation
 
+> [!NOTE]
+> For the architectural roadmap on evolving Exocortex into a centralized multi-user service with unified label-based taxonomy and automated role cataloging, see **[RFC 001: Centralized Multi-User Architecture & Label-First Knowledge Graph](docs/rfcs/001-multiuser-label-based-architecture.md)**.
+
 ## Goal
 
 Build a local work knowledge system that learns from Codex sessions without

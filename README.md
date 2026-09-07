@@ -141,8 +141,8 @@ make up
 make doctor
 ~~~
 
-The work MCP server listens only on
-<code>http://127.0.0.1:8765/mcp</code>. Open
+The work MCP server listens on
+<code>http://127.0.0.1:8765/mcp</code>. An integrated dark-mode web dashboard is available at <code>http://127.0.0.1:8765/</code> (and <code>/dashboard</code>), providing real-time health checks, note distribution stats, and a JSON metrics endpoint at <code>/api/dashboard</code> with zero additional containers or memory overhead. Open
 <code>brain/Vault</code> with Obsidian when a visual editor is useful.
 When the `observability` profile is enabled, the local observability interfaces
 are Jaeger at
@@ -164,7 +164,7 @@ directory. Daily ingestion is bounded by
 <code>BRAIN_INGEST_BATCH_SIZE</code> (default 5). A stopped cycle resumes from
 per-segment content-hash checkpoints. Sync also batches embedding requests with
 <code>BRAIN_EMBEDDING_BATCH_SIZE</code> (default 50) and Neo4j upserts with
-<code>BRAIN_NEO4J_UPSERT_BATCH_SIZE</code> (default 100). Historical backfill is
+<code>BRAIN_NEO4J_UPSERT_BATCH_SIZE</code> (default 100). For hybrid environments decoupling LLM extraction from vector generation, configure <code>BRAIN_LLM_BASE_URL</code> (e.g. cloud JSON extraction) and <code>BRAIN_EMBEDDING_BASE_URL</code> (e.g. local Ollama with <code>nomic-embed-text</code>) independently. When <code>BRAIN_EMBEDDING_BASE_URL</code> is defined, embeddings route directly to the low-latency local backend with zero cloud overhead. Historical backfill is
 a separate manual operation; set
 <code>BRAIN_SCHEDULER_BACKFILL_ENABLED=true</code> only for a controlled
 maintenance window. Fallback retry is controlled by
@@ -344,6 +344,12 @@ To ingest Antigravity session transcripts with bounded, resumable extraction:
 exocortexctl ingest-antigravity --transcripts-root ~/.gemini/antigravity/brain --space work
 ~~~
 
+Antigravity session transcript ingestion is powered by an intelligent **Dynamic & Semantic Chunking Engine** based on four architectural principles:
+- **Atomic Tool Units:** Planner tool calls (`tool_calls`) and their execution outputs (`tool_result`) are bound into an indivisible unit; segmentation never cuts between a tool call and its response.
+- **Adaptive Payload Compaction:** Bulky terminal outputs, git dumps, and diffs are collapsed while preserving structural headers and footers (`[omitted N lines]`).
+- **Boundary Awareness & Intent Shift:** Automatically distinguishes substantive intent shifts from quick follow-up acknowledgments (e.g., *'ok'*, *'dale'*), preventing fragmented context windows.
+- **Semantic Windowing:** Computes vector cosine similarity between successive turns via local embeddings (`nomic-embed-text`), cutting window boundaries at thematic drift valleys before sending contextual bundles to the extraction gateway.
+
 All coding assistants (Antigravity, Codex, Claude Code) share the same local Vault, Neo4j projection, and MCP endpoint.
 
 ## Operations
@@ -447,3 +453,8 @@ configured gateway.
   recommendations require supported user-decision or tool-observation claims,
   and recommendation feedback is persisted in the Vault before being projected
   to Neo4j.
+
+## Roadmap & Architecture RFCs
+
+- **[RFC 001: Centralized Multi-User Architecture & Label-First Knowledge Graph](docs/rfcs/001-multiuser-label-based-architecture.md)**:
+  Evolution of Exocortex from a local workstation tool into a centralized team knowledge service accessed exclusively over MCP, featuring a unified label-based taxonomy (replacing rigid space silos) and automatic background user role profiling (DevOps, Data Eng, SRE).
