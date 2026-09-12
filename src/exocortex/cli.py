@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import typer
 
+from exocortex.assets import AssetStore
 from exocortex.config import Settings
 from exocortex.models import ResponseEnvelope
 from exocortex.service import BrainService
@@ -24,9 +25,11 @@ app = typer.Typer(help="Obsidian-first knowledge brain controls.")
 config_app = typer.Typer(help="Create or inspect project configuration.")
 review_app = typer.Typer(help="Promote or reject staged knowledge.")
 repair_app = typer.Typer(help="Repair and roll back canonical Brain data.")
+assets_app = typer.Typer(help="Manage and inspect orchestrator assets store.")
 app.add_typer(config_app, name="config")
 app.add_typer(review_app, name="review")
 app.add_typer(repair_app, name="repair")
+app.add_typer(assets_app, name="assets")
 
 _CLAUDE_MCP_NAME = "codex-brain"
 _CLAUDE_MEMORY_PERMISSION = "mcp__codex-brain__brain_remember"
@@ -865,3 +868,129 @@ def _register_antigravity_mcp(config_path: Path, mcp_url: str) -> None:
         "serverUrl": mcp_url,
     }
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+
+@assets_app.command("bootstrap")
+def assets_bootstrap(
+    root: Annotated[Path | None, typer.Option("--root", "-r")] = None,
+) -> None:
+    """Initialize directory layout, permissions, and index DB for assets."""
+    store = AssetStore(root)
+    store.ensure_structure()
+    _emit_response(
+        "ok",
+        "assets-bootstrap",
+        {"root": str(store.root), "categories": list(store.CATEGORIES)},
+    )
+
+
+@assets_app.command("register")
+def assets_register(
+    source: Annotated[Path, typer.Argument(exists=True, readable=True)],
+    category: Annotated[str, typer.Option("--category", "-c")] = "inbox",
+    subpath: Annotated[str | None, typer.Option("--subpath")] = None,
+    origin: Annotated[str | None, typer.Option("--origin", "-o")] = None,
+    tags: Annotated[
+        str | None, typer.Option("--tags", "-t", help="Comma-separated tags")
+    ] = None,
+    source_url: Annotated[str | None, typer.Option("--source-url")] = None,
+    brain_note_id: Annotated[str | None, typer.Option("--brain-note-id")] = None,
+    retention: Annotated[str, typer.Option("--retention")] = "keep",
+    ttl_seconds: Annotated[float | None, typer.Option("--ttl-seconds")] = None,
+    expires_at: Annotated[str | None, typer.Option("--expires-at")] = None,
+    visibility: Annotated[str, typer.Option("--visibility")] = "private",
+    copy_mode: Annotated[str, typer.Option("--copy-mode")] = "copy",
+    dedup: Annotated[bool, typer.Option("--dedup/--no-dedup")] = True,
+    root: Annotated[Path | None, typer.Option("--root", "-r")] = None,
+) -> None:
+    """Register a file into the assets store."""
+    store = AssetStore(root)
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    record, is_new = store.register_file(
+        source_path=source,
+        category=category,
+        relative_subpath=subpath,
+        copy_mode=copy_mode,  # type: ignore[arg-type]
+        origin=origin,
+        source_url=source_url,
+        tags=tag_list,
+        brain_note_id=brain_note_id,
+        retention=retention,  # type: ignore[arg-type]
+        ttl_seconds=ttl_seconds,
+        expires_at=expires_at,
+        visibility=visibility,  # type: ignore[arg-type]
+        deduplicate=dedup,
+    )
+    _emit_response(
+        "ok",
+        "assets-register",
+        {"asset": record.model_dump(), "is_new": is_new},
+    )
+
+
+@assets_app.command("get")
+def assets_get(
+    asset_id: Annotated[str, typer.Argument()],
+    root: Annotated[Path | None, typer.Option("--root", "-r")] = None,
+) -> None:
+    """Fetch an asset by its UUID."""
+    store = AssetStore(root)
+    asset = store.get_asset(asset_id)
+    if not asset:
+        _emit_response("error", "assets-get", {"error": f"Asset {asset_id} not found"})
+        raise typer.Exit(1)
+    _emit_response("ok", "assets-get", asset.model_dump())
+
+
+@assets_app.command("find-by-hash")
+def assets_find_by_hash(
+    sha256: Annotated[str, typer.Argument()],
+    root: Annotated[Path | None, typer.Option("--root", "-r")] = None,
+) -> None:
+    """Find assets by sha256 hash."""
+    store = AssetStore(root)
+    results = store.find_by_sha256(sha256)
+    _emit_response("ok", "assets-find-by-hash", [r.model_dump() for r in results])
+
+
+@assets_app.command("search")
+def assets_search(
+    origin: Annotated[str | None, typer.Option("--origin", "-o")] = None,
+    tag: Annotated[str | None, typer.Option("--tag", "-t")] = None,
+    category: Annotated[str | None, typer.Option("--category", "-c")] = None,
+    retention: Annotated[str | None, typer.Option("--retention")] = None,
+    visibility: Annotated[str | None, typer.Option("--visibility")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l")] = 50,
+    root: Annotated[Path | None, typer.Option("--root", "-r")] = None,
+) -> None:
+    """Search indexed assets by origin, tag, category, retention, visibility."""
+    store = AssetStore(root)
+    results = store.search_assets(
+        origin=origin,
+        tag=tag,
+        category=category,
+        retention=retention,  # type: ignore[arg-type]
+        visibility=visibility,  # type: ignore[arg-type]
+        limit=limit,
+    )
+    _emit_response("ok", "assets-search", [r.model_dump() for r in results])
+
+
+@assets_app.command("purge")
+def assets_purge(
+    category: Annotated[str | None, typer.Option("--category", "-c")] = "tmp",
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path | None, typer.Option("--root", "-r")] = None,
+) -> None:
+    """Purge expired assets based on TTL and expiration timestamp."""
+    store = AssetStore(root)
+    purged = store.purge_expired(target_category=category, dry_run=dry_run)
+    _emit_response(
+        "ok",
+        "assets-purge",
+        {
+            "purged_count": len(purged),
+            "items": purged,
+            "dry_run": dry_run,
+        },
+    )
