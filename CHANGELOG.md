@@ -2,6 +2,11 @@
 
 All notable changes to Codex Brain are documented here.
 
+## [0.2.1] - 2026-09-15
+
+### Added
+- **Orchestrator Assets Store Integration:** Added complete assets storage subsystem (`src/exocortex/assets.py`) for file payload exchange, media management, cleanup scripts (`purge_assets.py`, `purge_tmp.sh`), and SQLite assets metadata store.
+
 ## [Unreleased]
 
 ### Added
