@@ -23,6 +23,8 @@ dist/
 # Local Runtime Data & Private Brain Vault
 brain/
 neo4j/
+/assets/
+/.meta/
 .state/
 .bootstrap-sessions/
 .e2e-sessions/
