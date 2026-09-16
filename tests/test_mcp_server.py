@@ -39,6 +39,15 @@ def test_mcp_server_exposes_grounded_tools(tmp_path: Path) -> None:
     ]
 
 
+def test_mcp_tools_are_async(tmp_path: Path) -> None:
+    """All registered MCP tools are async to avoid blocking the event loop."""
+    import inspect
+
+    server = create_server(make_settings(tmp_path / "brain"))
+    for tool_name, tool in server._tool_manager._tools.items():
+        assert inspect.iscoroutinefunction(tool.fn), f"Tool {tool_name} must be async"
+
+
 def test_mcp_tools_return_v2_envelopes_and_validate_dates(
     tmp_path: Path,
     monkeypatch,
@@ -141,7 +150,10 @@ def test_mcp_tools_return_v2_envelopes_and_validate_dates(
     assert remember_schema["additionalProperties"] is True
 
     def call(name: str, **arguments):
-        return server._tool_manager.get_tool(name).fn(**arguments)
+        result = server._tool_manager.get_tool(name).fn(**arguments)
+        if asyncio.iscoroutine(result):
+            return asyncio.run(result)
+        return result
 
     assert call("brain_search", query="terraform")["status"] == "ok"
     assert call("brain_get", note_id="missing")["status"] == "not_found"

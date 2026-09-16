@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import date
 from typing import Any
@@ -117,7 +118,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_search(
+    async def brain_search(
         query: str,
         space_id: str | None = None,
         project_id: str | None = None,
@@ -127,7 +128,8 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         include_candidates: bool = False,
     ) -> dict[str, Any]:
         """Search prior knowledge and return source-grounded results."""
-        return service.search_response(
+        response = await asyncio.to_thread(
+            service.search_response,
             query,
             space_id=space_id,
             project_id=project_id,
@@ -135,45 +137,6 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             limit=limit,
             answer_mode=answer_mode,
             include_candidates=include_candidates,
-        ).model_dump(mode="json")
-
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
-        )
-    )
-    def brain_get(note_id: str) -> dict[str, Any]:
-        """Return a canonical note by its stable identifier."""
-        note = service.get_note(note_id)
-        display_note, claim_status = (
-            _display_note_with_claims(note) if note else (None, "not_extracted")
-        )
-        incomplete = note is not None and not note.content.strip()
-        response = ResponseEnvelope(
-            status="incomplete" if incomplete else "ok" if note else "not_found",
-            method="vault-get",
-            data=(
-                display_note.model_dump(mode="json")
-                if display_note and not incomplete
-                else None
-            ),
-            meta=(
-                {
-                    "claim_status": claim_status,
-                    "claim_count": len(display_note.metadata.claims)
-                    if display_note and not incomplete
-                    else 0,
-                    "source_ref_count": len(note.metadata.source_refs) if note else 0,
-                    "integrity_status": "empty_content" if incomplete else "complete",
-                    "usable_as_evidence": not incomplete,
-                    "note_id": note_id if incomplete else None,
-                    "path": note.path if incomplete else None,
-                }
-                if note
-                else {}
-            ),
         )
         return response.model_dump(mode="json")
 
@@ -184,7 +147,50 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_list_by_date(
+    async def brain_get(note_id: str) -> dict[str, Any]:
+        """Return a canonical note by its stable identifier."""
+        def _get() -> dict[str, Any]:
+            note = service.get_note(note_id)
+            display_note, claim_status = (
+                _display_note_with_claims(note) if note else (None, "not_extracted")
+            )
+            incomplete = note is not None and not note.content.strip()
+            response = ResponseEnvelope(
+                status="incomplete" if incomplete else "ok" if note else "not_found",
+                method="vault-get",
+                data=(
+                    display_note.model_dump(mode="json")
+                    if display_note and not incomplete
+                    else None
+                ),
+                meta=(
+                    {
+                        "claim_status": claim_status,
+                        "claim_count": len(display_note.metadata.claims)
+                        if display_note and not incomplete
+                        else 0,
+                        "source_ref_count": len(note.metadata.source_refs) if note else 0,
+                        "integrity_status": "empty_content" if incomplete else "complete",
+                        "usable_as_evidence": not incomplete,
+                        "note_id": note_id if incomplete else None,
+                        "path": note.path if incomplete else None,
+                    }
+                    if note
+                    else {}
+                ),
+            )
+            return response.model_dump(mode="json")
+
+        return await asyncio.to_thread(_get)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def brain_list_by_date(
         start_on: str,
         end_on: str,
         space_id: str | None = None,
@@ -201,50 +207,54 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             raise ValueError("limit must be at least 1.")
         if offset < 0:
             raise ValueError("offset must be non-negative.")
-        coverage = service.date_coverage(start_date, end_date, space_id=space_id)
-        data = [
-            result.model_dump(mode="json")
-            for result in service.notes_by_date(
-                start_date,
-                end_date,
-                space_id=space_id,
-                limit=limit,
-                offset=offset,
-            )
-        ]
-        total_count = int(coverage["notes_in_range"])
-        has_more = offset + len(data) < total_count
-        return ResponseEnvelope(
-            status="ok" if data else "not_found",
-            method="timeline",
-            data=data,
-            meta={
-                "limit": limit,
-                "offset": offset,
-                "total_count": total_count,
-                "has_more": has_more,
-                "next_offset": offset + len(data) if has_more else None,
-                "start_on": start_on,
-                "end_on": end_on,
-                "result_count": len(data),
-                "date_basis": "source_reference.occurred_on",
-                "coverage": coverage,
-                "coverage_warning": (
-                    "notes_exist_by_ingestion_date_but_not_by_source_date"
-                    if not data and coverage["notes_created_in_range"]
-                    else "some_notes_have_no_source_date"
-                    if coverage["notes_without_source_dates"]
-                    else None
-                ),
-                "abstention_reason": (
-                    None
-                    if data
-                    else "offset_out_of_range"
-                    if total_count and offset >= total_count
-                    else "no_notes_in_date_range"
-                ),
-            },
-        ).model_dump(mode="json")
+
+        def _list_by_date() -> dict[str, Any]:
+            coverage = service.date_coverage(start_date, end_date, space_id=space_id)
+            data = [
+                result.model_dump(mode="json")
+                for result in service.notes_by_date(
+                    start_date,
+                    end_date,
+                    space_id=space_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            ]
+            total_count = int(coverage["notes_in_range"])
+            has_more = offset + len(data) < total_count
+            return ResponseEnvelope(
+                status="ok" if data else "not_found",
+                method="timeline",
+                data=data,
+                meta={
+                    "limit": limit,
+                    "offset": offset,
+                    "total_count": total_count,
+                    "has_more": has_more,
+                    "next_offset": offset + len(data) if has_more else None,
+                    "start_on": start_on,
+                    "end_on": end_on,
+                    "result_count": len(data),
+                    "date_basis": "source_reference.occurred_on",
+                    "coverage": coverage,
+                    "coverage_warning": (
+                        "notes_exist_by_ingestion_date_but_not_by_source_date"
+                        if not data and coverage["notes_created_in_range"]
+                        else "some_notes_have_no_source_date"
+                        if coverage["notes_without_source_dates"]
+                        else None
+                    ),
+                    "abstention_reason": (
+                        None
+                        if data
+                        else "offset_out_of_range"
+                        if total_count and offset >= total_count
+                        else "no_notes_in_date_range"
+                    ),
+                },
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_list_by_date)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -253,28 +263,31 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_list_by_label(
+    async def brain_list_by_label(
         labels: list[str],
         space_id: str | None = None,
         match_all: bool = False,
         limit: int = 25,
     ) -> dict[str, Any]:
         """List notes connected to one or more canonical labels."""
-        data = [
-            result.model_dump(mode="json")
-            for result in service.list_by_label(
-                labels,
-                space_id=space_id,
-                match_all=match_all,
-                limit=limit,
-            )
-        ]
-        return ResponseEnvelope(
-            status="ok" if data else "not_found",
-            method="labels",
-            data=data,
-            meta={"limit": limit},
-        ).model_dump(mode="json")
+        def _list_by_label() -> dict[str, Any]:
+            data = [
+                result.model_dump(mode="json")
+                for result in service.list_by_label(
+                    labels,
+                    space_id=space_id,
+                    match_all=match_all,
+                    limit=limit,
+                )
+            ]
+            return ResponseEnvelope(
+                status="ok" if data else "not_found",
+                method="labels",
+                data=data,
+                meta={"limit": limit},
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_list_by_label)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -283,17 +296,19 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_recommend_workflow(
+    async def brain_recommend_workflow(
         task: str,
         space_id: str | None = None,
         limit: int = 5,
     ) -> dict[str, Any]:
         """Recommend active workflows relevant to a task or problem."""
-        return service.recommend_workflow_response(
+        response = await asyncio.to_thread(
+            service.recommend_workflow_response,
             task,
             space_id=space_id,
             limit=limit,
-        ).model_dump(mode="json")
+        )
+        return response.model_dump(mode="json")
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -302,14 +317,17 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_get_workflow(workflow_id: str) -> dict[str, Any]:
+    async def brain_get_workflow(workflow_id: str) -> dict[str, Any]:
         """Return one active workflow with its evidence references."""
-        note = service.get_workflow(workflow_id)
-        return ResponseEnvelope(
-            status="ok" if note else "not_found",
-            method="workflow-get",
-            data=note.model_dump(mode="json") if note else None,
-        ).model_dump(mode="json")
+        def _get_workflow() -> dict[str, Any]:
+            note = service.get_workflow(workflow_id)
+            return ResponseEnvelope(
+                status="ok" if note else "not_found",
+                method="workflow-get",
+                data=note.model_dump(mode="json") if note else None,
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_get_workflow)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -319,17 +337,19 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_record_feedback(
+    async def brain_record_feedback(
         workflow_id: str,
         outcome: str,
         notes: str | None = None,
     ) -> dict[str, Any]:
         """Update a workflow confidence score from a reported outcome."""
-        return service.record_workflow_feedback(
+        response = await asyncio.to_thread(
+            service.record_workflow_feedback,
             workflow_id,
             outcome,
             notes,
-        ).model_dump(mode="json")
+        )
+        return response.model_dump(mode="json")
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -339,7 +359,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_record_search_feedback(
+    async def brain_record_search_feedback(
         query: str,
         note_ids: list[str],
         relevance: str,
@@ -348,14 +368,16 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Persist explicit relevance feedback for search results."""
-        return service.record_search_feedback(
+        response = await asyncio.to_thread(
+            service.record_search_feedback,
             query=query,
             note_ids=note_ids,
             relevance=relevance,
             reason=reason,
             space_id=space_id,
             tags=tags,
-        ).model_dump(mode="json")
+        )
+        return response.model_dump(mode="json")
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -364,25 +386,28 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_health() -> dict[str, Any]:
+    async def brain_health() -> dict[str, Any]:
         """Return non-sensitive health for Vault, gateway, and Neo4j."""
-        report = service.doctor()
-        return ResponseEnvelope(
-            status=(
-                "ok"
-                if report.vault == "ok"
-                and report.gateway == "ok"
-                and report.neo4j == "ok"
-                else "degraded"
-            ),
-            method="health",
-            data={
-                "vault": report.vault,
-                "gateway": report.gateway,
-                "neo4j": report.neo4j,
-                "detail": report.detail,
-            },
-        ).model_dump(mode="json")
+        def _health() -> dict[str, Any]:
+            report = service.doctor()
+            return ResponseEnvelope(
+                status=(
+                    "ok"
+                    if report.vault == "ok"
+                    and report.gateway == "ok"
+                    and report.neo4j == "ok"
+                    else "degraded"
+                ),
+                method="health",
+                data={
+                    "vault": report.vault,
+                    "gateway": report.gateway,
+                    "neo4j": report.neo4j,
+                    "detail": report.detail,
+                },
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_health)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -391,13 +416,16 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_learning_status() -> dict[str, Any]:
+    async def brain_learning_status() -> dict[str, Any]:
         """Return non-sensitive learning progress and active workflow count."""
-        return ResponseEnvelope(
-            status="ok",
-            method="learning-status",
-            data=service.learning_status(),
-        ).model_dump(mode="json")
+        def _learning_status() -> dict[str, Any]:
+            return ResponseEnvelope(
+                status="ok",
+                method="learning-status",
+                data=service.learning_status(),
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_learning_status)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -407,13 +435,14 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_ingest_session(
+    async def brain_ingest_session(
         transcript_jsonl: str,
         conversation_id: str,
         space_id: str | None = None,
     ) -> dict[str, Any]:
         """Ingest transcript JSONL over MCP without filesystem mounts."""
-        response = service.ingest_antigravity_transcript(
+        response = await asyncio.to_thread(
+            service.ingest_antigravity_transcript,
             transcript_jsonl=transcript_jsonl,
             conversation_id=conversation_id,
             space_id=space_id or settings.default_space,
@@ -428,13 +457,14 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    def brain_remember(
+    async def brain_remember(
         content: str,
         title: str,
         space_id: str | None = None,
     ) -> dict[str, Any]:
         """Store a sanitized durable memory in the canonical work Vault."""
-        response = service.remember_response(
+        response = await asyncio.to_thread(
+            service.remember_response,
             content=content,
             title=title,
             space_id=space_id or settings.default_space,
