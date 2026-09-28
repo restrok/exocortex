@@ -149,6 +149,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
     )
     async def brain_get(note_id: str) -> dict[str, Any]:
         """Return a canonical note by its stable identifier."""
+
         def _get() -> dict[str, Any]:
             note = service.get_note(note_id)
             display_note, claim_status = (
@@ -169,8 +170,12 @@ def create_server(settings: Settings | None = None) -> FastMCP:
                         "claim_count": len(display_note.metadata.claims)
                         if display_note and not incomplete
                         else 0,
-                        "source_ref_count": len(note.metadata.source_refs) if note else 0,
-                        "integrity_status": "empty_content" if incomplete else "complete",
+                        "source_ref_count": len(note.metadata.source_refs)
+                        if note
+                        else 0,
+                        "integrity_status": "empty_content"
+                        if incomplete
+                        else "complete",
                         "usable_as_evidence": not incomplete,
                         "note_id": note_id if incomplete else None,
                         "path": note.path if incomplete else None,
@@ -270,6 +275,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         limit: int = 25,
     ) -> dict[str, Any]:
         """List notes connected to one or more canonical labels."""
+
         def _list_by_label() -> dict[str, Any]:
             data = [
                 result.model_dump(mode="json")
@@ -319,6 +325,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
     )
     async def brain_get_workflow(workflow_id: str) -> dict[str, Any]:
         """Return one active workflow with its evidence references."""
+
         def _get_workflow() -> dict[str, Any]:
             note = service.get_workflow(workflow_id)
             return ResponseEnvelope(
@@ -388,6 +395,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
     )
     async def brain_health() -> dict[str, Any]:
         """Return non-sensitive health for Vault, gateway, and Neo4j."""
+
         def _health() -> dict[str, Any]:
             report = service.doctor()
             return ResponseEnvelope(
@@ -418,6 +426,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
     )
     async def brain_learning_status() -> dict[str, Any]:
         """Return non-sensitive learning progress and active workflow count."""
+
         def _learning_status() -> dict[str, Any]:
             return ResponseEnvelope(
                 status="ok",
