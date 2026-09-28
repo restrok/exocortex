@@ -4196,6 +4196,8 @@ def _note_fingerprint(note: VaultNote) -> str:
     """Return a stable fingerprint for reflection-relevant note content."""
     payload = {
         "id": str(note.metadata.id),
+        "space_id": note.metadata.space_id,
+        "owner": note.metadata.owner,
         "type": note.metadata.type,
         "title": note.metadata.title,
         "labels": _effective_labels(note),
