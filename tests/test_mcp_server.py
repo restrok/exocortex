@@ -217,3 +217,194 @@ def test_mcp_server_registers_dashboard_routes(tmp_path: Path) -> None:
     assert "/" in routes
     assert "/dashboard" in routes
     assert "/api/dashboard" in routes
+
+
+def test_access_matrix_resolution() -> None:
+    """Access matrix resolves allowed spaces deterministically by user identity."""
+    from exocortex.mcp_server import resolve_allowed_spaces, resolve_remember_space
+
+    # user_id == 'fsirio'
+    assert resolve_allowed_spaces("fsirio") == ["personal-fsirio", "shared", "work"]
+    assert resolve_allowed_spaces("FSIRIO") == ["personal-fsirio", "shared", "work"]
+    assert resolve_allowed_spaces("fsirio", space_id="personal") == ["personal-fsirio"]
+    assert resolve_allowed_spaces("fsirio", space_id="shared") == ["shared"]
+    assert resolve_allowed_spaces("fsirio", space_id="work") == ["work"]
+    assert resolve_allowed_spaces("fsirio", space_id="personal-mercedes") == []
+
+    # user_id == 'mercedes'
+    assert resolve_allowed_spaces("mercedes") == ["personal-mercedes", "shared"]
+    assert resolve_allowed_spaces("Mercedes") == ["personal-mercedes", "shared"]
+    assert resolve_allowed_spaces("mercedes", space_id="personal") == [
+        "personal-mercedes"
+    ]
+    assert resolve_allowed_spaces("mercedes", space_id="shared") == ["shared"]
+    # Mercedes is forbidden from 'work' or 'personal-fsirio'
+    assert resolve_allowed_spaces("mercedes", space_id="work") == []
+    assert resolve_allowed_spaces("mercedes", space_id="personal-fsirio") == []
+
+    # user_id == None
+    assert resolve_allowed_spaces(None) == ["work"]
+    assert resolve_allowed_spaces(None, space_id="personal") == ["work"]
+    assert resolve_allowed_spaces(None, space_id="work") == ["work"]
+    assert resolve_allowed_spaces(None, space_id="personal-fsirio") == []
+
+    # Remember space resolution
+    assert resolve_remember_space("mercedes", "personal") == "personal-mercedes"
+    assert resolve_remember_space("mercedes", "shared") == "shared"
+    assert resolve_remember_space("mercedes", None) == "personal-mercedes"
+    assert resolve_remember_space("fsirio", "personal") == "personal-fsirio"
+    assert resolve_remember_space("fsirio", "work") == "work"
+    assert resolve_remember_space("fsirio", None) == "work"
+    assert resolve_remember_space(None, "personal") == "work"
+    assert resolve_remember_space(None, None) == "work"
+
+
+def test_mcp_tools_propagate_user_id_and_filter_privacies(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """MCP tools receive user_id and isolate user memories."""
+
+    class CapturingService:
+        def __init__(self, settings) -> None:
+            self.settings = settings
+            self.search_kwargs = {}
+            self.remember_kwargs = {}
+            self.notes = {
+                "fsirio-note": VaultNote(
+                    metadata=NoteMetadata(
+                        type="task",
+                        title="Fsirio Secret",
+                        space_id="personal-fsirio",
+                        owner="fsirio",
+                    ),
+                    content="Confidential Fsirio Task",
+                    path="Vault/personal-fsirio/Tasks/fsirio-note.md",
+                ),
+                "mercedes-note": VaultNote(
+                    metadata=NoteMetadata(
+                        type="task",
+                        title="Mercedes Health",
+                        space_id="personal-mercedes",
+                        owner="mercedes",
+                    ),
+                    content="Confidential Mercedes Health",
+                    path="Vault/personal-mercedes/Tasks/mercedes-note.md",
+                ),
+                "shared-note": VaultNote(
+                    metadata=NoteMetadata(
+                        type="task",
+                        title="Honda Fit Service",
+                        space_id="shared",
+                    ),
+                    content="Car Maintenance",
+                    path="Vault/shared/Tasks/shared-note.md",
+                ),
+            }
+
+        def search_response(self, *args, **kwargs) -> ResponseEnvelope:
+            self.search_kwargs = kwargs
+            return ResponseEnvelope(status="ok", method="search", data=[])
+
+        def get_note(self, note_id: str):
+            return self.notes.get(note_id)
+
+        def remember_response(self, **kwargs) -> ResponseEnvelope:
+            self.remember_kwargs = kwargs
+            return ResponseEnvelope(
+                status="stored",
+                method="remember",
+                data={"note_id": "new-note", "note_path": "new-path"},
+            )
+
+        def notes_by_date(self, *args, **kwargs):
+            return []
+
+        def date_coverage(self, *args, **kwargs):
+            return {
+                "notes_scanned": 0,
+                "notes_with_source_refs": 0,
+                "source_refs_with_dates": 0,
+                "source_refs_in_range": 0,
+                "notes_without_source_dates": 0,
+                "notes_created_in_range": 0,
+                "notes_updated_in_range": 0,
+                "notes_ingested_in_range": 0,
+                "notes_in_range": 0,
+            }
+
+        def list_by_label(self, *args, **kwargs):
+            return []
+
+        def recommend_workflow_response(self, *args, **kwargs) -> ResponseEnvelope:
+            return ResponseEnvelope(status="abstained", method="workflow", data=[])
+
+    capturing_service = CapturingService(make_settings(tmp_path / "brain"))
+    monkeypatch.setattr(mcp_server, "BrainService", lambda s: capturing_service)
+
+    server = create_server(make_settings(tmp_path / "brain"))
+
+    def call(name: str, **arguments):
+        result = server._tool_manager.get_tool(name).fn(**arguments)
+        if asyncio.iscoroutine(result):
+            return asyncio.run(result)
+        return result
+
+    # 1. Search as mercedes -> allowed_spaces must be ['personal-mercedes', 'shared']
+    call("brain_search", query="health", user_id="mercedes")
+    assert capturing_service.search_kwargs["allowed_spaces"] == [
+        "personal-mercedes",
+        "shared",
+    ]
+
+    # 2. Search as fsirio -> allowed_spaces must include work and shared
+    call("brain_search", query="work project", user_id="fsirio")
+    assert capturing_service.search_kwargs["allowed_spaces"] == [
+        "personal-fsirio",
+        "shared",
+        "work",
+    ]
+
+    # 3. Search without user_id -> fallback to ['work']
+    call("brain_search", query="generic query")
+    assert capturing_service.search_kwargs["allowed_spaces"] == ["work"]
+
+    # 4. Remember with space_id='personal' as mercedes -> 'personal-mercedes'
+    call(
+        "brain_remember",
+        content="Swimming session",
+        title="Swim",
+        space_id="personal",
+        user_id="mercedes",
+    )
+    assert capturing_service.remember_kwargs["space_id"] == "personal-mercedes"
+    assert capturing_service.remember_kwargs["owner"] == "mercedes"
+
+    # 5. Remember with space_id='personal' as fsirio -> resolves to 'personal-fsirio'
+    call(
+        "brain_remember",
+        content="EDC Knife",
+        title="Knife",
+        space_id="personal",
+        user_id="fsirio",
+    )
+    assert capturing_service.remember_kwargs["space_id"] == "personal-fsirio"
+    assert capturing_service.remember_kwargs["owner"] == "fsirio"
+
+    # 6. brain_get isolation: Mercedes CANNOT view Fsirio note
+    mercedes_access_fsirio = call(
+        "brain_get", note_id="fsirio-note", user_id="mercedes"
+    )
+    assert mercedes_access_fsirio["status"] == "not_found"
+
+    # 7. brain_get isolation: Fsirio CANNOT view Mercedes note
+    fsirio_access_mercedes = call(
+        "brain_get", note_id="mercedes-note", user_id="fsirio"
+    )
+    assert fsirio_access_mercedes["status"] == "not_found"
+
+    # 8. brain_get isolation: Mercedes CAN view shared note and her own note
+    mercedes_own = call("brain_get", note_id="mercedes-note", user_id="mercedes")
+    assert mercedes_own["status"] == "ok"
+    shared_by_mercedes = call("brain_get", note_id="shared-note", user_id="mercedes")
+    assert shared_by_mercedes["status"] == "ok"
