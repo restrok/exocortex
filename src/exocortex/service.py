@@ -776,9 +776,15 @@ class BrainService:
         """Reject a review candidate."""
         self._ingestor().reject(source_id)
 
-    def remember(self, content: str, title: str, space_id: str) -> VaultNote:
+    def remember(
+        self,
+        content: str,
+        title: str,
+        space_id: str,
+        owner: str | None = None,
+    ) -> VaultNote:
         """Store one explicit sanitized memory and return its canonical note."""
-        note, _ = self._remember(content, title, space_id)
+        note, _ = self._remember(content, title, space_id, owner=owner)
         return note
 
     def remember_response(
@@ -786,9 +792,10 @@ class BrainService:
         content: str,
         title: str,
         space_id: str,
+        owner: str | None = None,
     ) -> ResponseEnvelope:
         """Store a memory and report Vault/index consistency explicitly."""
-        note, index_error = self._remember(content, title, space_id)
+        note, index_error = self._remember(content, title, space_id, owner=owner)
         status = "degraded" if index_error else "stored"
         return ResponseEnvelope(
             status=status,
@@ -810,6 +817,7 @@ class BrainService:
         content: str,
         title: str,
         space_id: str,
+        owner: str | None = None,
     ) -> tuple[VaultNote, str | None]:
         """Store a memory through the shared extraction and indexing path."""
         sanitized_content = self.sanitizer.sanitize(content)
@@ -822,6 +830,7 @@ class BrainService:
                 content=sanitized_content.text,
                 space_id=space_id,
                 locator="mcp://brain_remember",
+                owner=owner,
             ),
             extract=True,
             force_reextract=True,
@@ -1083,6 +1092,7 @@ class BrainService:
         limit: int = 5,
         project_id: str | None = None,
         repository_id: str | None = None,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Retrieve grounded results using hybrid lexical and semantic ranking."""
         results, _ = self._hybrid_search(
@@ -1091,6 +1101,7 @@ class BrainService:
             limit,
             project_id=project_id,
             repository_id=repository_id,
+            allowed_spaces=allowed_spaces,
         )
         return results
 
@@ -1104,6 +1115,7 @@ class BrainService:
         repository_id: str | None = None,
         answer_mode: AnswerMode = "conservative",
         include_candidates: bool = False,
+        allowed_spaces: list[str] | None = None,
     ) -> ResponseEnvelope:
         """Return schema-v2 search data with explicit abstention status."""
         if include_candidates:
@@ -1123,6 +1135,7 @@ class BrainService:
             max(limit * 10, 50),
             project_id=project_id,
             repository_id=repository_id,
+            allowed_spaces=allowed_spaces,
         )
         facts = [
             result
@@ -1275,6 +1288,7 @@ class BrainService:
         limit: int,
         project_id: str | None = None,
         repository_id: str | None = None,
+        allowed_spaces: list[str] | None = None,
     ) -> tuple[list[SearchResult], bool]:
         """Return ranked results and whether retrieval degraded to lexical mode."""
         sanitized = self.sanitizer.sanitize(query)
@@ -1287,6 +1301,11 @@ class BrainService:
         lexical_results: list[SearchResult] = []
         semantic_results: list[SearchResult] = []
         degraded = False
+
+        effective_allowed_spaces = allowed_spaces
+        if effective_allowed_spaces is None and space_id is not None:
+            effective_allowed_spaces = [space_id]
+
         try:
             with operation_span(
                 "exocortex.search.lexical",
@@ -1294,11 +1313,19 @@ class BrainService:
             ) as span:
                 store = self._graph_store()
                 try:
-                    graph_results = store.search_fulltext(
-                        sanitized_query,
-                        space_id,
-                        50,
-                    )
+                    try:
+                        graph_results = store.search_fulltext(
+                            sanitized_query,
+                            space_id=space_id,
+                            limit=50,
+                            allowed_spaces=effective_allowed_spaces,
+                        )
+                    except TypeError:
+                        graph_results = store.search_fulltext(
+                            sanitized_query,
+                            space_id,
+                            50,
+                        )
                 finally:
                     store.close()
                 lexical_results = graph_results
@@ -1307,19 +1334,34 @@ class BrainService:
                     len(lexical_results),
                 )
         except Exception:  # pylint: disable=broad-except
-            lexical_results = self._lexical_search(sanitized_query, space_id, 50)
+            lexical_results = self._lexical_search(
+                sanitized_query,
+                space_id=space_id,
+                limit=50,
+                allowed_spaces=effective_allowed_spaces,
+            )
             degraded = True
 
         literal_query = _literal_anchor_query(analysis)
         if not lexical_results or literal_query:
-            vault_results = self._lexical_search(sanitized_query, space_id, 50)
+            vault_results = self._lexical_search(
+                sanitized_query,
+                space_id=space_id,
+                limit=50,
+                allowed_spaces=effective_allowed_spaces,
+            )
             known_ids = {result.note_id for result in lexical_results}
             lexical_results.extend(
                 result for result in vault_results if result.note_id not in known_ids
             )
 
         if literal_query:
-            fallback_results = self._lexical_search(literal_query, space_id, 50)
+            fallback_results = self._lexical_search(
+                literal_query,
+                space_id=space_id,
+                limit=50,
+                allowed_spaces=effective_allowed_spaces,
+            )
             known_ids = {result.note_id for result in lexical_results}
             lexical_results.extend(
                 result for result in fallback_results if result.note_id not in known_ids
@@ -1341,11 +1383,19 @@ class BrainService:
                 )
                 store = self._graph_store()
                 try:
-                    semantic_results = store.search_vector(
-                        query_embedding,
-                        space_id,
-                        50,
-                    )
+                    try:
+                        semantic_results = store.search_vector(
+                            query_embedding,
+                            space_id=space_id,
+                            limit=50,
+                            allowed_spaces=effective_allowed_spaces,
+                        )
+                    except TypeError:
+                        semantic_results = store.search_vector(
+                            query_embedding,
+                            space_id,
+                            50,
+                        )
                 finally:
                     store.close()
                 span.set_attribute(
@@ -1358,11 +1408,12 @@ class BrainService:
         if degraded:
             context_results = self._lexical_search(
                 sanitized_query,
-                space_id,
-                50,
+                space_id=space_id,
+                limit=50,
                 context_only=True,
                 query_labels=query_labels,
                 analysis=analysis,
+                allowed_spaces=effective_allowed_spaces,
             )
             known_ids = {result.note_id for result in lexical_results}
             lexical_results.extend(
@@ -1463,6 +1514,7 @@ class BrainService:
         space_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Return notes whose source conversations occurred within a date range."""
         if start_on > end_on:
@@ -1473,7 +1525,7 @@ class BrainService:
             raise ValueError("offset must be non-negative.")
 
         results: list[SearchResult] = []
-        for note in self.vault.iter_notes(space_id):
+        for note in self.vault.iter_notes(space_ids=allowed_spaces, space_id=space_id):
             if not _is_queryable_note(note):
                 continue
             source_refs = _dated_source_refs(note, start_on, end_on)
@@ -1511,6 +1563,7 @@ class BrainService:
         start_on: date,
         end_on: date,
         space_id: str | None = None,
+        allowed_spaces: list[str] | None = None,
     ) -> dict[str, int]:
         """Report temporal coverage without treating ingestion dates as evidence."""
         if start_on > end_on:
@@ -1525,7 +1578,7 @@ class BrainService:
         notes_updated_in_range = 0
         notes_ingested_in_range = 0
         notes_in_range = 0
-        for note in self.vault.iter_notes(space_id):
+        for note in self.vault.iter_notes(space_ids=allowed_spaces, space_id=space_id):
             notes_scanned += 1
             if not _is_queryable_note(note):
                 continue
@@ -1572,13 +1625,14 @@ class BrainService:
         space_id: str | None = None,
         match_all: bool = False,
         limit: int = 25,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Return non-superseded notes matching canonical labels."""
         requested = set(self.labels.canonicalize(labels))
         if not requested:
             return []
         results: list[SearchResult] = []
-        for note in self.vault.iter_notes(space_id):
+        for note in self.vault.iter_notes(space_ids=allowed_spaces, space_id=space_id):
             if note.metadata.superseded_by:
                 continue
             note_labels = set(_effective_labels(note))
@@ -1597,9 +1651,22 @@ class BrainService:
         task: str,
         space_id: str | None = None,
         limit: int = 5,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Recommend active workflows through the hybrid retrieval pipeline."""
-        candidates, _ = self._hybrid_search(task, space_id, max(limit * 10, 50))
+        try:
+            candidates, _ = self._hybrid_search(
+                task,
+                space_id,
+                max(limit * 10, 50),
+                allowed_spaces=allowed_spaces,
+            )
+        except TypeError:
+            candidates, _ = self._hybrid_search(
+                task,
+                space_id,
+                max(limit * 10, 50),
+            )
         results = [
             result
             for result in candidates
@@ -1676,13 +1743,19 @@ class BrainService:
         task: str,
         space_id: str | None = None,
         limit: int = 5,
+        allowed_spaces: list[str] | None = None,
     ) -> ResponseEnvelope:
         """Return schema-v2 workflow recommendations with abstention."""
-        results = self.recommend_workflows(task, space_id, limit)
+        workflows = self.recommend_workflows(
+            task,
+            space_id=space_id,
+            limit=limit,
+            allowed_spaces=allowed_spaces,
+        )
         return ResponseEnvelope(
-            status="ok" if results else "abstained",
+            status="ok" if workflows else "abstained",
             method="hybrid-rrf-workflow",
-            data=[result.model_dump(mode="json") for result in results],
+            data=[result.model_dump(mode="json") for result in workflows],
             meta={
                 "limit": limit,
                 "threshold": 0.50,
@@ -1691,7 +1764,7 @@ class BrainService:
                     self.settings.operational_context is not None
                 ),
                 "quarantine_threshold": 0.30,
-                "result_count": len(results),
+                "result_count": len(workflows),
             },
         )
 
@@ -1831,16 +1904,21 @@ class BrainService:
         )
 
     @traced("exocortex.reflect")
-    def reflect(self, limit: int | None = None) -> dict[str, object]:
+    def reflect(
+        self,
+        limit: int | None = None,
+        space_id: str | None = None,
+    ) -> dict[str, object]:
         """Consolidate changed experiences into evidence-backed workflows."""
+        target_space = space_id or self.settings.default_space
         state = self._load_reflection_state()
         all_experiences = [
             note
-            for note in self.vault.iter_notes(self.settings.default_space)
+            for note in self.vault.iter_notes(target_space)
             if note.metadata.type not in {"workflow", "pattern"}
             and not note.metadata.superseded_by
         ]
-        patterns = self._store_patterns(all_experiences)
+        patterns = self._store_patterns(all_experiences, space_id=target_space)
         candidates = [
             note
             for note in all_experiences
@@ -1875,7 +1953,7 @@ class BrainService:
         )
         workflows = [
             note
-            for note in self.vault.iter_notes(self.settings.default_space)
+            for note in self.vault.iter_notes(target_space)
             if note.metadata.type == "workflow" and not note.metadata.superseded_by
         ]
         try:
@@ -1884,7 +1962,7 @@ class BrainService:
                 _workflow_cards(workflows),
             )
             aliases = self._store_aliases(reflection)
-            accepted = self._store_workflows(reflection)
+            accepted = self._store_workflows(reflection, space_id=target_space)
         except Exception:
             raise
         for note in candidates:
@@ -2179,11 +2257,15 @@ class BrainService:
             return self.settings.state_dir / "codex-ingest-checkpoint.json"
         return self.settings.state_dir / f"codex-ingest-checkpoint-{root_id}.json"
 
-    def _store_workflows(self, reflection: ReflectionKnowledge) -> int:
+    def _store_workflows(
+        self,
+        reflection: ReflectionKnowledge,
+        space_id: str | None = None,
+    ) -> int:
         """Validate evidence and persist accepted workflow proposals."""
+        target_space = space_id or self.settings.default_space
         notes = {
-            str(note.metadata.id): note
-            for note in self.vault.iter_notes(self.settings.default_space)
+            str(note.metadata.id): note for note in self.vault.iter_notes(target_space)
         }
         accepted = 0
         for proposal in reflection.workflows:
@@ -2236,7 +2318,7 @@ class BrainService:
                 schema_version=2,
                 type="workflow",
                 title=proposal.title.strip(),
-                space_id=self.settings.default_space,
+                space_id=target_space,
                 ingested_at=datetime.now(UTC),
                 source_refs=[],
                 confidence=_initial_workflow_confidence(evidence, proposal),
@@ -2276,11 +2358,16 @@ class BrainService:
             accepted += 1
         return accepted
 
-    def _store_patterns(self, notes: list[VaultNote]) -> int:
+    def _store_patterns(
+        self,
+        notes: list[VaultNote],
+        space_id: str | None = None,
+    ) -> int:
         """Materialize reusable patterns from independent scoped examples."""
+        target_space = space_id or self.settings.default_space
         grouped: dict[str, list[VaultNote]] = {}
         existing: dict[str, VaultNote] = {}
-        for note in self.vault.iter_notes(self.settings.default_space):
+        for note in self.vault.iter_notes(target_space):
             if note.metadata.type != "pattern" or note.metadata.superseded_by:
                 continue
             key = _normalize_pattern_key(note.metadata.pattern_key)
@@ -2326,7 +2413,7 @@ class BrainService:
                 schema_version=2,
                 type="pattern",
                 title=_pattern_title(pattern_key),
-                space_id=self.settings.default_space,
+                space_id=target_space,
                 ingested_at=datetime.now(UTC),
                 source_refs=[pattern_reference, *references],
                 confidence=round(confidence, 6),
@@ -2393,11 +2480,12 @@ class BrainService:
     def _lexical_search(
         self,
         query: str,
-        space_id: str | None,
-        limit: int,
+        space_id: str | None = None,
+        limit: int = 50,
         context_only: bool = False,
         query_labels: set[str] | None = None,
         analysis: QueryAnalysis | None = None,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Search Markdown locally when a graph index is unavailable.
 
@@ -2412,7 +2500,7 @@ class BrainService:
         if not tokens:
             return []
         candidates: list[SearchResult] = []
-        for note in self.vault.iter_notes(space_id):
+        for note in self.vault.iter_notes(space_ids=allowed_spaces, space_id=space_id):
             if note.metadata.superseded_by:
                 continue
             title = note.metadata.title.lower()
@@ -4108,6 +4196,8 @@ def _note_fingerprint(note: VaultNote) -> str:
     """Return a stable fingerprint for reflection-relevant note content."""
     payload = {
         "id": str(note.metadata.id),
+        "space_id": note.metadata.space_id,
+        "owner": note.metadata.owner,
         "type": note.metadata.type,
         "title": note.metadata.title,
         "labels": _effective_labels(note),

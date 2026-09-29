@@ -1235,3 +1235,97 @@ def test_reflection_semantic_retrieval_returns_vector_matches(
     )
 
     assert scores == {str(historical.metadata.id): 0.91}
+
+
+def test_search_isolation_multi_user(tmp_path: Path) -> None:
+    """Retrieval deterministically isolates users based on allowed_spaces."""
+    service = BrainService(make_settings(tmp_path / "brain"))
+
+    n_fsirio = service.vault.upsert_managed(
+        NoteMetadata(
+            type="task",
+            title="Fsirio Clinical Checkup And Health",
+            space_id="personal-fsirio",
+            owner="fsirio",
+            labels=["health", "clinical"],
+            claims=[
+                Claim(id="c1", text="Fsirio health status", claim_key="health.fsirio")
+            ],
+        ),
+        "## Summary\nFsirio personal health data.",
+    )
+    n_mercedes = service.vault.upsert_managed(
+        NoteMetadata(
+            type="task",
+            title="Mercedes Clinical Recovery And Swimming",
+            space_id="personal-mercedes",
+            owner="mercedes",
+            labels=["health", "clinical", "swim"],
+            claims=[
+                Claim(
+                    id="c2",
+                    text="Mercedes recovery protocol",
+                    claim_key="health.mercedes",
+                )
+            ],
+        ),
+        "## Summary\nMercedes clinical recovery data.",
+    )
+    n_shared = service.vault.upsert_managed(
+        NoteMetadata(
+            type="task",
+            title="Honda Fit Service Kee 116 Maintenance",
+            space_id="shared",
+            labels=["car", "service", "honda"],
+            claims=[
+                Claim(id="c3", text="Honda Fit service record", claim_key="car.service")
+            ],
+        ),
+        "## Summary\nHonda Fit common car maintenance.",
+    )
+    n_work = service.vault.upsert_managed(
+        NoteMetadata(
+            type="task",
+            title="Work Infrastructure Cloud Run Deployments",
+            space_id="work",
+            labels=["devops", "cloud"],
+            claims=[Claim(id="c4", text="Work deploy status", claim_key="work.deploy")],
+        ),
+        "## Summary\nWork company infrastructure.",
+    )
+
+    # 1. Search as Mercedes: allowed_spaces = ['personal-mercedes', 'shared']
+    # Mercedes finds her own health note, NEVER Fsirio's health note!
+    mercedes_search = service.search(
+        "health clinical",
+        allowed_spaces=["personal-mercedes", "shared"],
+    )
+    found_ids = {r.note_id for r in mercedes_search}
+    assert str(n_mercedes.metadata.id) in found_ids
+    assert str(n_fsirio.metadata.id) not in found_ids
+    assert str(n_work.metadata.id) not in found_ids
+
+    # Query for "Honda Fit": Mercedes must find the shared note
+    mercedes_car_search = service.search(
+        "Honda Fit service",
+        allowed_spaces=["personal-mercedes", "shared"],
+    )
+    found_car_ids = {r.note_id for r in mercedes_car_search}
+    assert str(n_shared.metadata.id) in found_car_ids
+
+    # 2. Search as Fsirio: allowed_spaces = ['personal-fsirio', 'shared', 'work']
+    # Query for "health": Fsirio finds his own health note, NEVER Mercedes's!
+    fsirio_search = service.search(
+        "health clinical",
+        allowed_spaces=["personal-fsirio", "shared", "work"],
+    )
+    fsirio_found_ids = {r.note_id for r in fsirio_search}
+    assert str(n_fsirio.metadata.id) in fsirio_found_ids
+    assert str(n_mercedes.metadata.id) not in fsirio_found_ids
+
+    # Fsirio also has access to work and shared
+    fsirio_work_search = service.search(
+        "infrastructure",
+        allowed_spaces=["personal-fsirio", "shared", "work"],
+    )
+    assert str(n_work.metadata.id) in {r.note_id for r in fsirio_work_search}

@@ -50,6 +50,7 @@ class SourceRecord:
     segment_id: str | None = None
     event_start: int | None = None
     event_end: int | None = None
+    owner: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class _PreparedRecord:
     locator: str
     space_id: str
     reference: SourceReference
+    owner: str | None = None
 
 
 @dataclass
@@ -249,6 +251,7 @@ class Ingestor:
             quarantined=prepared.injection_detected,
             extraction_status=extraction_status,
             source_content=prepared.sanitized.text if preserve_source else None,
+            owner=prepared.owner,
         )
         return IngestResult(
             source_id=prepared.source_id,
@@ -370,6 +373,7 @@ class Ingestor:
                 prepared.reference,
                 quarantined=prepared.injection_detected,
                 extraction_status=extraction_status,
+                owner=prepared.owner,
             )
             results_by_source[prepared.source_id] = IngestResult(
                 source_id=prepared.source_id,
@@ -453,6 +457,11 @@ class Ingestor:
             sanitized.text,
             reference,
         )
+        owner = record.owner or (
+            space_id.removeprefix("personal-")
+            if space_id.startswith("personal-")
+            else None
+        )
         return _PreparedRecord(
             record=record,
             sanitized=sanitized,
@@ -462,6 +471,7 @@ class Ingestor:
             locator=locator,
             space_id=space_id,
             reference=reference,
+            owner=owner,
         )
 
     def _current_note(
@@ -613,6 +623,7 @@ class Ingestor:
         quarantined: bool = False,
         extraction_status: ExtractionStatus = "extracted",
         source_content: str | None = None,
+        owner: str | None = None,
     ) -> VaultNote:
         """Write a canonical note from a sanitized extraction."""
         labels = knowledge.labels
@@ -622,11 +633,17 @@ class Ingestor:
             )
         elif self._label_registry is not None:
             labels = self._label_registry.canonicalize(labels)
+        resolved_owner = owner or (
+            space_id.removeprefix("personal-")
+            if space_id.startswith("personal-")
+            else None
+        )
         metadata = NoteMetadata(
             schema_version=2,
             type=knowledge.note_type,
             title=knowledge.title,
             space_id=space_id,
+            owner=resolved_owner,
             ingested_at=datetime.now(UTC),
             source_refs=[reference],
             confidence=knowledge.confidence,
@@ -652,6 +669,8 @@ class Ingestor:
             metadata.id = existing.metadata.id
             metadata.created_at = existing.metadata.created_at
             metadata.manual_labels = existing.metadata.manual_labels
+            if existing.metadata.owner and not metadata.owner:
+                metadata.owner = existing.metadata.owner
             if existing.metadata.superseded_by:
                 metadata.superseded_by = existing.metadata.superseded_by
         note = self._vault.upsert_managed(

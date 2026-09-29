@@ -167,7 +167,11 @@ class Neo4jStore:
                 "MATCH (note:Note {id: row.id}) "
                 "UNWIND row.links AS link_reference "
                 "MATCH (linked:Note) "
-                "WHERE linked.space_id = row.space_id "
+                "WHERE (linked.space_id = row.space_id "
+                "OR linked.space_id = 'shared' "
+                "OR row.space_id = 'shared' "
+                "OR (row.space_id = 'personal-fsirio' AND linked.space_id = 'work') "
+                "OR (row.space_id = 'work' AND linked.space_id = 'personal-fsirio')) "
                 "AND (linked.id = link_reference "
                 "OR linked.title = link_reference "
                 "OR linked.path = link_reference "
@@ -248,16 +252,19 @@ class Neo4jStore:
     def search_fulltext(
         self,
         query: str,
-        space_id: str | None,
-        limit: int,
+        space_id: str | None = None,
+        limit: int = 10,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Search canonical note text through Neo4j full-text indexing."""
+        if allowed_spaces is None and space_id is not None:
+            allowed_spaces = [space_id]
         records = self._run_search(
             (
                 "CALL db.index.fulltext.queryNodes('note_search_v2', $search_query) "
                 "YIELD node, score "
                 "WHERE node.superseded_by IS NULL AND "
-                "($space_id IS NULL OR node.space_id = $space_id) "
+                "($allowed_spaces IS NULL OR node.space_id IN $allowed_spaces) "
                 "OPTIONAL MATCH (node)-[:DERIVED_FROM]->(source:Source) "
                 "OPTIONAL MATCH (node)-[:LINKS_TO|TAGGED_WITH]->(related) "
                 "RETURN node, score, collect(DISTINCT source) AS sources, "
@@ -265,7 +272,7 @@ class Neo4jStore:
                 "ORDER BY score DESC LIMIT $limit"
             ),
             search_query=query,
-            space_id=space_id,
+            allowed_spaces=allowed_spaces,
             limit=limit,
         )
         return [_result_from_record(record, lexical=True) for record in records]
@@ -273,16 +280,19 @@ class Neo4jStore:
     def search_vector(
         self,
         embedding: list[float],
-        space_id: str | None,
-        limit: int,
+        space_id: str | None = None,
+        limit: int = 10,
+        allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Search canonical note embeddings through Neo4j vector indexing."""
+        if allowed_spaces is None and space_id is not None:
+            allowed_spaces = [space_id]
         records = self._run_search(
             (
                 "CALL db.index.vector.queryNodes('note_embedding', $limit, $embedding) "
                 "YIELD node, score "
                 "WHERE node.superseded_by IS NULL AND "
-                "($space_id IS NULL OR node.space_id = $space_id) "
+                "($allowed_spaces IS NULL OR node.space_id IN $allowed_spaces) "
                 "OPTIONAL MATCH (node)-[:DERIVED_FROM]->(source:Source) "
                 "OPTIONAL MATCH (node)-[:LINKS_TO|TAGGED_WITH]->(related) "
                 "RETURN node, score, collect(DISTINCT source) AS sources, "
@@ -290,7 +300,7 @@ class Neo4jStore:
                 "ORDER BY score DESC"
             ),
             embedding=embedding,
-            space_id=space_id,
+            allowed_spaces=allowed_spaces,
             limit=limit,
         )
         return [_result_from_record(record, semantic=True) for record in records]
@@ -324,6 +334,7 @@ def _note_row(
         "title": note.metadata.title,
         "note_type": note.metadata.type,
         "space_id": note.metadata.space_id,
+        "owner": note.metadata.owner,
         "path": note.path,
         "content": note.content,
         "confidence": note.metadata.confidence,

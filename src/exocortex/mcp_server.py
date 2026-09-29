@@ -64,6 +64,54 @@ def _display_note_with_claims(note: VaultNote) -> tuple[VaultNote, str]:
     return note.model_copy(update={"metadata": metadata}), "derived_from_source"
 
 
+def resolve_allowed_spaces(
+    user_id: str | None,
+    space_id: str | None = None,
+) -> list[str]:
+    """Resolve allowed knowledge spaces deterministically based on user identity."""
+    normalized_user = user_id.strip().lower() if user_id else None
+    if normalized_user == "fsirio":
+        allowed = ["personal-fsirio", "shared", "work"]
+    elif normalized_user == "mercedes":
+        allowed = ["personal-mercedes", "shared"]
+    else:
+        allowed = ["work"]
+
+    if space_id is not None:
+        target = space_id.strip().lower()
+        if target == "personal":
+            target = f"personal-{normalized_user}" if normalized_user else "work"
+        if target in allowed:
+            return [target]
+        return []
+    return allowed
+
+
+def resolve_remember_space(
+    user_id: str | None,
+    space_id: str | None = None,
+    default_space: str = "work",
+) -> str:
+    """Resolve the destination space for memory creation deterministically."""
+    normalized_user = user_id.strip().lower() if user_id else None
+    if space_id is not None:
+        target = space_id.strip().lower()
+        if target == "personal":
+            return f"personal-{normalized_user}" if normalized_user else default_space
+        allowed = resolve_allowed_spaces(normalized_user)
+        if target in allowed:
+            return target
+        if normalized_user:
+            return f"personal-{normalized_user}"
+        return default_space
+
+    if normalized_user == "mercedes":
+        return "personal-mercedes"
+    if normalized_user == "fsirio":
+        return default_space
+    return default_space
+
+
 def create_server(settings: Settings | None = None) -> FastMCP:
     """Build the local work MCP server exposing grounded brain operations."""
     settings = settings or Settings()
@@ -126,17 +174,20 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         limit: int = 5,
         answer_mode: str = "conservative",
         include_candidates: bool = False,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Search prior knowledge and return source-grounded results."""
+        allowed_spaces = resolve_allowed_spaces(user_id, space_id=space_id)
         response = await asyncio.to_thread(
             service.search_response,
             query,
-            space_id=space_id,
+            space_id=None,
             project_id=project_id,
             repository_id=repository_id,
             limit=limit,
             answer_mode=answer_mode,
             include_candidates=include_candidates,
+            allowed_spaces=allowed_spaces,
         )
         return response.model_dump(mode="json")
 
@@ -147,11 +198,18 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             openWorldHint=False,
         )
     )
-    async def brain_get(note_id: str) -> dict[str, Any]:
+    async def brain_get(
+        note_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         """Return a canonical note by its stable identifier."""
 
         def _get() -> dict[str, Any]:
             note = service.get_note(note_id)
+            if note and user_id is not None:
+                allowed = resolve_allowed_spaces(user_id)
+                if note.metadata.space_id not in allowed:
+                    note = None
             display_note, claim_status = (
                 _display_note_with_claims(note) if note else (None, "not_extracted")
             )
@@ -201,6 +259,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         space_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """List notes by source-conversation date using YYYY-MM-DD bounds."""
         try:
@@ -213,16 +272,24 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         if offset < 0:
             raise ValueError("offset must be non-negative.")
 
+        allowed_spaces = resolve_allowed_spaces(user_id, space_id=space_id)
+
         def _list_by_date() -> dict[str, Any]:
-            coverage = service.date_coverage(start_date, end_date, space_id=space_id)
+            coverage = service.date_coverage(
+                start_date,
+                end_date,
+                space_id=None,
+                allowed_spaces=allowed_spaces,
+            )
             data = [
                 result.model_dump(mode="json")
                 for result in service.notes_by_date(
                     start_date,
                     end_date,
-                    space_id=space_id,
+                    space_id=None,
                     limit=limit,
                     offset=offset,
+                    allowed_spaces=allowed_spaces,
                 )
             ]
             total_count = int(coverage["notes_in_range"])
@@ -273,17 +340,20 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         space_id: str | None = None,
         match_all: bool = False,
         limit: int = 25,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """List notes connected to one or more canonical labels."""
+        allowed_spaces = resolve_allowed_spaces(user_id, space_id=space_id)
 
         def _list_by_label() -> dict[str, Any]:
             data = [
                 result.model_dump(mode="json")
                 for result in service.list_by_label(
                     labels,
-                    space_id=space_id,
+                    space_id=None,
                     match_all=match_all,
                     limit=limit,
+                    allowed_spaces=allowed_spaces,
                 )
             ]
             return ResponseEnvelope(
@@ -306,13 +376,16 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         task: str,
         space_id: str | None = None,
         limit: int = 5,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Recommend active workflows relevant to a task or problem."""
+        allowed_spaces = resolve_allowed_spaces(user_id, space_id=space_id)
         response = await asyncio.to_thread(
             service.recommend_workflow_response,
             task,
-            space_id=space_id,
+            space_id=None,
             limit=limit,
+            allowed_spaces=allowed_spaces,
         )
         return response.model_dump(mode="json")
 
@@ -470,13 +543,21 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         content: str,
         title: str,
         space_id: str | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Store a sanitized durable memory in the canonical work Vault."""
+        normalized_user = user_id.strip().lower() if user_id else None
+        target_space = resolve_remember_space(
+            user_id=normalized_user,
+            space_id=space_id,
+            default_space=settings.default_space,
+        )
         response = await asyncio.to_thread(
             service.remember_response,
             content=content,
             title=title,
-            space_id=space_id or settings.default_space,
+            space_id=target_space,
+            owner=normalized_user,
         )
         return response.model_dump(mode="json")
 

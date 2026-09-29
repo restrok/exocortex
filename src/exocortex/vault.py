@@ -27,13 +27,27 @@ class Vault:
         """Create the Vault directory."""
         self._root.mkdir(parents=True, exist_ok=True)
 
-    def iter_notes(self, space_id: str | None = None) -> Iterable[VaultNote]:
-        """Yield validated notes, optionally limited to one knowledge space."""
+    def iter_notes(
+        self,
+        space_id: str | list[str] | set[str] | tuple[str, ...] | None = None,
+        space_ids: list[str] | set[str] | tuple[str, ...] | str | None = None,
+    ) -> Iterable[VaultNote]:
+        """Yield validated notes, optionally limited to one or more knowledge spaces."""
         if not self._root.exists():
             return
+        target_spaces: set[str] | None = None
+        raw_spaces = space_ids if space_ids is not None else space_id
+        if raw_spaces is not None:
+            if isinstance(raw_spaces, str):
+                target_spaces = {raw_spaces}
+            elif isinstance(raw_spaces, (list, set, tuple)):
+                target_spaces = set(raw_spaces)
+
         for path in sorted(self._root.rglob("*.md")):
             note = self._read_path(path)
-            if note and (space_id is None or note.metadata.space_id == space_id):
+            if note and (
+                target_spaces is None or note.metadata.space_id in target_spaces
+            ):
                 yield note
 
     def get(self, note_id: str) -> VaultNote | None:
@@ -47,14 +61,19 @@ class Vault:
         self,
         note_ids: Iterable[str],
         space_id: str | None = None,
+        space_ids: list[str] | set[str] | tuple[str, ...] | str | None = None,
     ) -> dict[str, VaultNote]:
         """Find several notes with one canonical-vault scan."""
         requested = {str(note_id) for note_id in note_ids}
         if not requested:
             return {}
+        if space_ids is not None:
+            notes_iter = self.iter_notes(space_ids=space_ids, space_id=space_id)
+        else:
+            notes_iter = self.iter_notes(space_id)
         return {
             str(note.metadata.id): note
-            for note in self.iter_notes(space_id)
+            for note in notes_iter
             if str(note.metadata.id) in requested
         }
 
