@@ -18,6 +18,7 @@ NoteType = Literal[
     "repository",
     "system",
     "workflow",
+    "proactive_intent",
 ]
 
 EvidenceStatus = Literal[

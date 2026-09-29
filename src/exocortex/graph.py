@@ -29,6 +29,7 @@ _LABELS = {
     "repository": "Repository",
     "system": "System",
     "workflow": "Workflow",
+    "proactive_intent": "ProactiveIntent",
 }
 
 

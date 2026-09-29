@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -16,6 +18,18 @@ from exocortex.config import Settings
 from exocortex.dashboard import get_dashboard_data, render_dashboard_html
 from exocortex.models import Claim, EvidenceSpan, ResponseEnvelope, VaultNote
 from exocortex.service import BrainService
+from exocortex.spaces import (
+    create_space as _create_space,
+)
+from exocortex.spaces import (
+    list_spaces_for_user as _list_spaces_for_user,
+)
+from exocortex.spaces import (
+    resolve_allowed_spaces as _resolve_allowed_spaces,
+)
+from exocortex.spaces import (
+    resolve_remember_space as _resolve_remember_space,
+)
 
 
 def _display_note_with_claims(note: VaultNote) -> tuple[VaultNote, str]:
@@ -67,49 +81,27 @@ def _display_note_with_claims(note: VaultNote) -> tuple[VaultNote, str]:
 def resolve_allowed_spaces(
     user_id: str | None,
     space_id: str | None = None,
+    data_dir: Path | None = None,
 ) -> list[str]:
-    """Resolve allowed knowledge spaces deterministically based on user identity."""
-    normalized_user = user_id.strip().lower() if user_id else None
-    if normalized_user == "fsirio":
-        allowed = ["personal-fsirio", "shared", "work"]
-    elif normalized_user == "mercedes":
-        allowed = ["personal-mercedes", "shared"]
-    else:
-        allowed = ["work"]
-
-    if space_id is not None:
-        target = space_id.strip().lower()
-        if target == "personal":
-            target = f"personal-{normalized_user}" if normalized_user else "work"
-        if target in allowed:
-            return [target]
-        return []
-    return allowed
+    """Resolve allowed knowledge spaces based on spaces configuration."""
+    return _resolve_allowed_spaces(
+        user_id=user_id, space_id=space_id, data_dir=data_dir
+    )
 
 
 def resolve_remember_space(
     user_id: str | None,
     space_id: str | None = None,
     default_space: str = "work",
+    data_dir: Path | None = None,
 ) -> str:
     """Resolve the destination space for memory creation deterministically."""
-    normalized_user = user_id.strip().lower() if user_id else None
-    if space_id is not None:
-        target = space_id.strip().lower()
-        if target == "personal":
-            return f"personal-{normalized_user}" if normalized_user else default_space
-        allowed = resolve_allowed_spaces(normalized_user)
-        if target in allowed:
-            return target
-        if normalized_user:
-            return f"personal-{normalized_user}"
-        return default_space
-
-    if normalized_user == "mercedes":
-        return "personal-mercedes"
-    if normalized_user == "fsirio":
-        return default_space
-    return default_space
+    return _resolve_remember_space(
+        user_id=user_id,
+        space_id=space_id,
+        default_space=default_space,
+        data_dir=data_dir,
+    )
 
 
 def create_server(settings: Settings | None = None) -> FastMCP:
@@ -560,6 +552,204 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             owner=normalized_user,
         )
         return response.model_dump(mode="json")
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def brain_list_spaces(
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """List knowledge spaces accessible to the user."""
+
+        def _list_spaces() -> dict[str, Any]:
+            spaces = _list_spaces_for_user(user_id=user_id, data_dir=settings.data_dir)
+            return ResponseEnvelope(
+                status="ok",
+                method="list-spaces",
+                data={"spaces": spaces},
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_list_spaces)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    async def brain_create_space(
+        name: str,
+        owner: str,
+        space_type: str = "work",
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Create a new knowledge space and initialize its Vault directory."""
+
+        def _create() -> dict[str, Any]:
+            res = _create_space(
+                data_dir=settings.data_dir,
+                name=name,
+                owner=owner,
+                space_type=space_type,
+                description=description,
+            )
+            store = service._graph_store()
+            if store is not None:
+                with contextlib.suppress(Exception):
+                    service.sync(embed=False)
+            return ResponseEnvelope(
+                status="ok",
+                method="create-space",
+                data=res,
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_create)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    async def brain_register_intent(
+        title: str,
+        goal_description: str,
+        target_event_timestamp: str,
+        decision_horizon_hours: int = 24,
+        eval_tool_target: str = "weather_check",
+        eval_params: dict[str, Any] | None = None,
+        space_id: str = "personal",
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Register a proactive conditional intent into the canonical Vault."""
+        normalized_user = user_id.strip().lower() if user_id else None
+        target_space = resolve_remember_space(
+            user_id=normalized_user,
+            space_id=space_id,
+            default_space=settings.default_space,
+            data_dir=settings.data_dir,
+        )
+
+        def _register() -> dict[str, Any]:
+            note = service.register_intent(
+                title=title,
+                goal_description=goal_description,
+                target_event_timestamp=target_event_timestamp,
+                decision_horizon_hours=decision_horizon_hours,
+                eval_tool_target=eval_tool_target,
+                eval_params=eval_params,
+                space_id=target_space,
+                owner=normalized_user,
+            )
+            note_id = str(note.metadata.id)
+            return ResponseEnvelope(
+                status="ok",
+                method="register-intent",
+                data={
+                    "id": note_id,
+                    "intent_id": note_id,
+                    "path": note.path,
+                    "title": title,
+                    "space_id": target_space,
+                },
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_register)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def brain_get_intent(
+        intent_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Get details of a proactive intent, respecting space isolation."""
+        allowed_spaces = resolve_allowed_spaces(
+            user_id=user_id,
+            data_dir=settings.data_dir,
+        )
+
+        def _get() -> dict[str, Any]:
+            note = service.get_intent(intent_id, allowed_spaces=allowed_spaces)
+            if note is None:
+                return ResponseEnvelope(
+                    status="not_found",
+                    method="get-intent",
+                    data=None,
+                ).model_dump(mode="json")
+
+            return ResponseEnvelope(
+                status="ok",
+                method="get-intent",
+                data={
+                    "id": str(note.metadata.id),
+                    "intent_id": str(note.metadata.id),
+                    "title": note.metadata.title,
+                    "space_id": note.metadata.space_id,
+                    "content": note.content,
+                    "metadata": note.metadata.model_dump(mode="json"),
+                },
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_get)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    async def brain_update_intent_status(
+        intent_id: str,
+        status: str,
+        context_data: dict[str, Any] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update the status of a proactive intent, respecting space isolation."""
+        allowed_spaces = resolve_allowed_spaces(
+            user_id=user_id,
+            data_dir=settings.data_dir,
+        )
+
+        def _update() -> dict[str, Any]:
+            note = service.update_intent_status(
+                intent_id=intent_id,
+                status=status,
+                context_data=context_data,
+                allowed_spaces=allowed_spaces,
+            )
+            if note is None:
+                return ResponseEnvelope(
+                    status="not_found",
+                    method="update-intent-status",
+                    data=None,
+                ).model_dump(mode="json")
+
+            return ResponseEnvelope(
+                status="ok",
+                method="update-intent-status",
+                data={
+                    "intent_id": str(note.metadata.id),
+                    "status": status,
+                    "path": note.path,
+                },
+            ).model_dump(mode="json")
+
+        return await asyncio.to_thread(_update)
 
     return mcp
 
