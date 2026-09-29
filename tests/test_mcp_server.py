@@ -36,6 +36,11 @@ def test_mcp_server_exposes_grounded_tools(tmp_path: Path) -> None:
         "brain_learning_status",
         "brain_ingest_session",
         "brain_remember",
+        "brain_list_spaces",
+        "brain_create_space",
+        "brain_register_intent",
+        "brain_get_intent",
+        "brain_update_intent_status",
     ]
 
 

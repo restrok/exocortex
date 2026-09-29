@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Any
 
 from exocortex.actions import canonicalize_action_key
 from exocortex.antigravity_sessions import (
@@ -811,6 +813,95 @@ class BrainService:
                 "extraction_status": note.metadata.extraction_status,
             },
         )
+
+    def register_intent(
+        self,
+        title: str,
+        goal_description: str,
+        target_event_timestamp: str,
+        decision_horizon_hours: int = 24,
+        eval_tool_target: str = "weather_check",
+        eval_params: dict[str, Any] | None = None,
+        space_id: str = "personal",
+        owner: str | None = None,
+    ) -> VaultNote:
+        """Register a proactive conditional intent into the canonical Vault."""
+        eval_params = eval_params or {}
+        managed_body = (
+            f"## Intent\n"
+            f"- goal: {goal_description}\n"
+            f"- target_time: {target_event_timestamp}\n"
+            f"- horizon_hours: {decision_horizon_hours}\n"
+            f"- eval_tool: {eval_tool_target}\n"
+            f"- eval_params: {eval_params}\n"
+            f"- status: active\n"
+        )
+        metadata = NoteMetadata(
+            type="proactive_intent",
+            title=title,
+            space_id=space_id,
+            owner=owner,
+            labels=["topic:proactive-intent", "topic:orchestration"],
+            confidence=1.0,
+            evidence_status="proposal",
+            recommendation_state="active",
+        )
+        note = self.vault.upsert_managed(metadata, managed_body)
+        store = self._graph_store()
+        if store is not None:
+            with contextlib.suppress(Exception):
+                store.upsert_note(note)
+        return note
+
+    def get_intent(
+        self,
+        intent_id: str,
+        allowed_spaces: list[str] | None = None,
+    ) -> VaultNote | None:
+        """Find one proactive intent by its ID, enforcing space isolation."""
+        note = self.vault.get(intent_id)
+        if note is None or note.metadata.type != "proactive_intent":
+            return None
+        if allowed_spaces is not None and note.metadata.space_id not in allowed_spaces:
+            return None
+        return note
+
+    def update_intent_status(
+        self,
+        intent_id: str,
+        status: str,
+        context_data: dict[str, Any] | None = None,
+        allowed_spaces: list[str] | None = None,
+    ) -> VaultNote | None:
+        """Update the status of a proactive intent, enforcing space isolation."""
+        note = self.get_intent(intent_id, allowed_spaces=allowed_spaces)
+        if note is None:
+            return None
+
+        content = note.content
+        if "- status:" in content:
+            new_content = re.sub(
+                r"- status:\s*[^\n]+",
+                f"- status: {status}",
+                content,
+            )
+        else:
+            new_content = f"{content.rstrip()}\n- status: {status}\n"
+
+        if context_data:
+            new_content = f"{new_content.rstrip()}\n- context_data: {context_data}\n"
+
+        if status == "dismissed":
+            note.metadata.recommendation_state = "quarantined"
+        elif status == "expired":
+            note.metadata.recommendation_state = "penalized"
+
+        updated = self.vault.upsert_managed(note.metadata, new_content)
+        store = self._graph_store()
+        if store is not None:
+            with contextlib.suppress(Exception):
+                store.upsert_note(updated)
+        return updated
 
     def _remember(
         self,
