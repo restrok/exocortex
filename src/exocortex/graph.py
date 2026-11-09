@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 from neo4j import GraphDatabase
 
@@ -12,7 +13,10 @@ from exocortex.config import Settings
 from exocortex.models import (
     ActionSignature,
     Claim,
+    EvidenceStatus,
+    KnowledgeLevel,
     KnowledgeScope,
+    RecommendationState,
     SearchResult,
     SourceReference,
     VaultNote,
@@ -32,6 +36,14 @@ _LABELS = {
     "proactive_intent": "ProactiveIntent",
 }
 
+_LUCENE_SPECIAL_RE = re.compile(r'([+\-!(){}\[\]^"~*?:\\/]|&&|\|\|)')
+
+
+def _escape_lucene_query(query: str) -> str:
+    """Escape Lucene special syntax characters to prevent ParseException crashes."""
+    escaped = _LUCENE_SPECIAL_RE.sub(r"\\\1", query).strip()
+    return escaped
+
 
 class Neo4jStore:
     """Project canonical notes into Neo4j and run graph-aware retrieval."""
@@ -45,6 +57,14 @@ class Neo4jStore:
                 settings.neo4j_password.get_secret_value(),
             ),
         )
+
+    def __enter__(self) -> Neo4jStore:
+        """Enter context manager and return the store instance."""
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        """Close the underlying Neo4j driver on context exit."""
+        self.close()
 
     def close(self) -> None:
         """Close the underlying Neo4j driver."""
@@ -258,6 +278,9 @@ class Neo4jStore:
         allowed_spaces: list[str] | None = None,
     ) -> list[SearchResult]:
         """Search canonical note text through Neo4j full-text indexing."""
+        safe_query = _escape_lucene_query(query)
+        if not safe_query:
+            return []
         if allowed_spaces is None and space_id is not None:
             allowed_spaces = [space_id]
         records = self._run_search(
@@ -272,7 +295,7 @@ class Neo4jStore:
                 "count(DISTINCT related) AS graph_score "
                 "ORDER BY score DESC LIMIT $limit"
             ),
-            search_query=query,
+            search_query=safe_query,
             allowed_spaces=allowed_spaces,
             limit=limit,
         )
@@ -458,8 +481,12 @@ def _result_from_record(
             if source is not None
         ],
         labels=[str(value) for value in node.get("labels", [])],
-        evidence_status=str(node.get("evidence_status", "unknown")),
-        recommendation_state=str(node.get("recommendation_state", "active")),
+        evidence_status=cast(
+            EvidenceStatus, str(node.get("evidence_status", "unknown"))
+        ),
+        recommendation_state=cast(
+            RecommendationState, str(node.get("recommendation_state", "active"))
+        ),
         confidence=float(node.get("confidence", 0.0)),
         recommendation_level=(
             "auto_apply"
@@ -474,7 +501,9 @@ def _result_from_record(
         graph_score=float(record.get("graph_score", 0.0)),
         claims=claims,
         actions=actions,
-        knowledge_level=str(node.get("knowledge_level", "example")),
+        knowledge_level=cast(
+            KnowledgeLevel, str(node.get("knowledge_level", "example"))
+        ),
         pattern_key=str(node.get("pattern_key", "")),
         scope=scope,
     )

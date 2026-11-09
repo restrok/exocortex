@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import mimetypes
@@ -9,6 +10,7 @@ import os
 import shutil
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -148,11 +150,19 @@ class AssetStore:
 
         self._init_db(file_mode=file_mode)
 
-    def _get_db_connection(self) -> sqlite3.Connection:
-        """Open a SQLite connection with row factory enabled."""
+    @contextlib.contextmanager
+    def _get_db_connection(self) -> Iterator[sqlite3.Connection]:
+        """Open a SQLite connection with row factory enabled and guaranteed close."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self, file_mode: int = 0o640) -> None:
         """Initialize SQLite database with assets table and indexes."""
@@ -210,25 +220,36 @@ class AssetStore:
                     "for in_place registration"
                 ) from None
         else:
-            filename = source.name
+            root_resolved = self.root.resolve()
+            if category not in self.CATEGORIES:
+                cat_resolved = (root_resolved / category).resolve()
+                if not cat_resolved.is_relative_to(root_resolved):
+                    raise ValueError("Path traversal detected")
+            filename = Path(source.name).name
             target_dir = self.root / category
             if relative_subpath:
                 target_dir = target_dir / relative_subpath
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target_path = target_dir / filename
+            resolved_target_dir = target_dir.resolve()
+            if not resolved_target_dir.is_relative_to(root_resolved):
+                raise ValueError("Path traversal detected")
+            target_path = resolved_target_dir / filename
+            if not target_path.resolve().is_relative_to(root_resolved):
+                raise ValueError("Path traversal detected")
+
+            resolved_target_dir.mkdir(parents=True, exist_ok=True)
 
             if target_path.exists() and target_path != source:
                 stem = source.stem
                 suffix = source.suffix
                 unique_name = f"{stem}_{uuid.uuid4().hex[:8]}{suffix}"
-                target_path = target_dir / unique_name
+                target_path = resolved_target_dir / unique_name
 
             if copy_mode == "copy":
                 shutil.copy2(source, target_path)
             elif copy_mode == "move":
                 shutil.move(str(source), str(target_path))
 
-            rel_path = str(target_path.relative_to(self.root))
+            rel_path = str(target_path.resolve().relative_to(root_resolved))
 
         calculated_expires: str | None = expires_at
         if retention == "ttl" and not calculated_expires:
@@ -351,7 +372,7 @@ class AssetStore:
             params.append(f'%"{tag}"%')
 
         where_stmt = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        query = f"SELECT * FROM assets {where_stmt} ORDER BY created_at DESC LIMIT ?"
+        query = f"SELECT * FROM assets {where_stmt} ORDER BY created_at DESC LIMIT ?"  # nosec
         params.append(limit)
 
         with self._get_db_connection() as conn:

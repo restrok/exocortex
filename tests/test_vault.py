@@ -170,3 +170,55 @@ def test_owner_field_preservation(tmp_path: Path) -> None:
     post_updated = frontmatter.load(file_path)
     assert post_updated.metadata.get("owner") == "fsirio"
     assert post_updated.metadata.get("confidence") == 0.88
+
+
+def test_vault_cache_hit_and_mtime_invalidation(tmp_path: Path, monkeypatch) -> None:
+    """Vault caches notes by (mtime_ns, size) and invalidates on disk edits."""
+    import frontmatter
+    import pytest
+
+    vault = Vault(tmp_path / "brain" / "Vault")
+    vault.ensure_exists()
+    note = vault.upsert_managed(
+        NoteMetadata(type="task", title="Cached Task", space_id="work"),
+        "## Summary\nInitial cached content.",
+    )
+    note_id = str(note.metadata.id)
+    file_path = tmp_path / "brain" / note.path
+
+    load_calls = 0
+    orig_load = frontmatter.load
+
+    def counted_load(path, *args, **kwargs):
+        nonlocal load_calls
+        load_calls += 1
+        return orig_load(path, *args, **kwargs)
+
+    monkeypatch.setattr(frontmatter, "load", counted_load)
+
+    # O(1) cache hit via _id_to_path and _path_cache: zero frontmatter.load calls!
+    fetched_1 = vault.get(note_id)
+    fetched_2 = vault.get(note_id)
+    assert fetched_1 is not None
+    assert fetched_2 is not None
+    assert load_calls == 0
+
+    # Modify file on disk -> cache must invalidate immediately
+    raw_text = file_path.read_text(encoding="utf-8")
+    file_path.write_text(
+        raw_text + "\nExternal disk modification.\n",
+        encoding="utf-8",
+    )
+
+    fetched_after = vault.get(note_id)
+    assert fetched_after is not None
+    assert "External disk modification." in fetched_after.content
+    assert load_calls == 1
+
+    # Subsequent read with unchanged mtime/size hits cache again
+    _ = vault.get(note_id)
+    assert load_calls == 1
+
+    # Path traversal in _absolute_path is rejected
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        vault._absolute_path("../../outside.md")

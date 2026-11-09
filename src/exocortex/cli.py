@@ -5,19 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tomllib
 from datetime import date
 from pathlib import Path
-from typing import Annotated, TextIO
+from typing import Annotated, Any, TextIO, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import typer
 
 from exocortex.assets import AssetStore
 from exocortex.config import Settings
-from exocortex.models import ResponseEnvelope
+from exocortex.models import AnswerMode, ResponseEnvelope, ResponseStatus
 from exocortex.service import BrainService
 from exocortex.telemetry import flush_telemetry
 
@@ -44,12 +44,12 @@ def _emit_response(
     status: str,
     method: str,
     data: object,
-    meta: dict[str, object] | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> None:
     """Print one schema-v2 response envelope."""
     typer.echo(
         ResponseEnvelope(
-            status=status,
+            status=cast(ResponseStatus, status),
             method=method,
             data=data,
             meta=meta or {},
@@ -171,7 +171,7 @@ def search(
             project_id=project,
             repository_id=repository,
             limit=limit,
-            answer_mode=answer_mode,
+            answer_mode=cast(AnswerMode, answer_mode),
             include_candidates=include_candidates,
         )
         .model_dump_json(indent=2)
@@ -521,7 +521,7 @@ def config_init(
         "BRAIN_REFLECTION_MAX_NOTES": "50",
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
-        "NEO4J_PASSWORD": "replace-with-a-strong-local-password",
+        "NEO4J_PASSWORD": "replace-with-a-strong-local-password",  # nosec
         "BRAIN_MCP_HOST": "127.0.0.1",
         "BRAIN_MCP_PORT": "8765",
         "BRAIN_SYNC_INTERVAL_SECONDS": "86400",
@@ -605,7 +605,7 @@ def config_install_claude(
 def _register_claude_mcp(mcp_url: str) -> None:
     """Register the local Brain MCP server in Claude Code when needed."""
     try:
-        existing = subprocess.run(
+        existing = subprocess.run(  # nosec B603 B607
             ["claude", "mcp", "get", _CLAUDE_MCP_NAME],
             capture_output=True,
             check=False,
@@ -626,7 +626,7 @@ def _register_claude_mcp(mcp_url: str) -> None:
         return
 
     try:
-        subprocess.run(
+        subprocess.run(  # nosec B603 B607
             [
                 "claude",
                 "mcp",

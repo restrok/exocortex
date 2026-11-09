@@ -260,3 +260,50 @@ def test_graph_search_and_links_compatible_spaces(tmp_path: Path, monkeypatch) -
     assert (
         "row.space_id = 'personal-fsirio' AND linked.space_id = 'work'" in link_call[0]
     )
+
+
+def test_neo4j_store_context_manager_and_lucene_escaping(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Neo4jStore supports context managers and escapes Lucene syntax."""
+    closed = False
+    captured_queries: list[dict[str, object]] = []
+
+    class Result:
+        def consume(self) -> "Result":
+            return self
+
+        def __iter__(self):
+            return iter([])
+
+    class Session:
+        def __enter__(self) -> "Session":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def run(self, query: str, **parameters: object) -> Result:
+            captured_queries.append(parameters)
+            return Result()
+
+    class Driver:
+        def session(self) -> Session:
+            return Session()
+
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setattr(graph.GraphDatabase, "driver", lambda *a, **k: Driver())
+
+    with graph.Neo4jStore(make_settings(tmp_path / "brain")) as store:
+        store.search_fulltext("topic:gcp path/to/file [test] (a+b)")
+
+    assert closed is True
+    assert len(captured_queries) == 1
+    escaped = str(captured_queries[0]["search_query"])
+    assert "topic\\:gcp" in escaped
+    assert "path\\/to\\/file" in escaped
+    assert "\\[test\\]" in escaped
+    assert "\\(a\\+b\\)" in escaped

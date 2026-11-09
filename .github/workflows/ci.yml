@@ -12,8 +12,56 @@ permissions:
   packages: write
 
 jobs:
+  pr-policy:
+    name: Conventional PR & Semantic Commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Branch Name, PR Title & Semantic Commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - << 'EOF'
+          import os, re, subprocess, sys
+
+          branch_re = re.compile(r"^(feat|fix|security|perf|refactor|test|docs|build|ci|chore|hotfix)/[a-z0-9._-]+$")
+          commit_re = re.compile(r"^(feat|fix|security|perf|refactor|test|docs|build|ci|chore|revert)(\([a-z0-9._-]+\))?!?: .+$")
+
+          head_ref = os.environ["HEAD_REF"]
+          pr_title = os.environ["PR_TITLE"]
+          base_sha = os.environ["BASE_SHA"]
+          head_sha = os.environ["HEAD_SHA"]
+
+          if not branch_re.match(head_ref):
+              print(f"ERROR: Branch '{head_ref}' must match '<type>/<kebab-slug>'", file=sys.stderr)
+              sys.exit(1)
+
+          if not commit_re.match(pr_title):
+              print(f"ERROR: PR title '{pr_title}' must follow Conventional Commits '<type>(<scope>): <summary>'", file=sys.stderr)
+              sys.exit(1)
+
+          subjects = subprocess.check_output(
+              ["git", "log", "--no-merges", "--format=%s", f"{base_sha}..{head_sha}"],
+              text=True,
+          ).splitlines()
+
+          for subj in subjects:
+              if not commit_re.match(subj):
+                  print(f"ERROR: Non-semantic commit message: '{subj}'", file=sys.stderr)
+                  sys.exit(1)
+
+          print(f"Verified branch '{head_ref}', PR title, and {len(subjects)} semantic commit(s).")
+          EOF
+
   lint:
-    name: Lint & Style
+    name: "Lint & Style"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +79,12 @@ jobs:
 
       - name: Run Ruff Format Check
         run: uv run --extra dev ruff format --check src tests
+
+      - name: Run Mypy Typecheck
+        run: uv run --extra dev mypy src
+
+      - name: Run Bandit Security Scan
+        run: uv run --extra dev bandit -r src -c pyproject.toml
 
   test:
     name: Tests (Python ${{ matrix.python-version }})

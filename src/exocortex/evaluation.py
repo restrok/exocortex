@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from exocortex.config import Settings
-from exocortex.models import SearchResult
+from exocortex.models import SearchResult, VaultNote
 from exocortex.service import BrainService
 
 
@@ -208,7 +208,7 @@ def main() -> None:
     if args.live:
         health = service.doctor()
         if health.gateway != "ok" or health.neo4j != "ok":
-            result = {
+            result: dict[str, Any] = {
                 "status": "degraded",
                 "reason": health.detail,
                 "mode": "live",
@@ -241,7 +241,7 @@ def _results_for_case(
     )
 
 
-def _note_case(case_id: str, note: object, category: str) -> dict[str, Any]:
+def _note_case(case_id: str, note: VaultNote, category: str) -> dict[str, Any]:
     """Create one case keyed by the stable canonical note UUID."""
     note_id = str(note.metadata.id)
     return {

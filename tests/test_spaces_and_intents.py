@@ -198,3 +198,40 @@ def test_mcp_intent_and_spaces_tools(tmp_path: Path) -> None:
     )
     assert upd_res["status"] == "ok"
     assert upd_res["data"]["status"] == "executed"
+
+
+def test_intent_lifecycle_closes_graph_store_without_leaks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """register_intent and update_intent_status always close Neo4j stores."""
+    settings = make_settings(tmp_path / "brain")
+    service = BrainService(settings)
+    closed_calls: list[str] = []
+
+    class TrackingStore:
+        def upsert_note(self, note) -> None:
+            raise RuntimeError("simulated graph offline")
+
+        def close(self) -> None:
+            closed_calls.append("closed")
+
+    monkeypatch.setattr(service, "_graph_store", lambda: TrackingStore())
+
+    note = service.register_intent(
+        title="Close Driver Test",
+        goal_description="Ensure driver closes on error",
+        target_event_timestamp="2026-10-05T12:00:00-03:00",
+        space_id="personal-fsirio",
+        owner="fsirio",
+    )
+    assert len(closed_calls) == 1
+
+    updated = service.update_intent_status(
+        intent_id=str(note.metadata.id),
+        status="dismissed",
+        allowed_spaces=["personal-fsirio"],
+    )
+    assert updated is not None
+    assert updated.metadata.recommendation_state == "quarantined"
+    assert len(closed_calls) == 2

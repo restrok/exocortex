@@ -13,12 +13,24 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from exocortex.actions import canonicalize_action_key
 from exocortex.antigravity_sessions import (
     AntigravitySessionAdapter,
     parse_antigravity_records,
+)
+from exocortex.checkpoint import (
+    _checkpoint_entry_is_complete,
+    _checkpoint_matches,
+    _checkpoint_record_matches,
+    _checkpoint_record_state,
+    _index_fingerprint,
+    _note_fingerprint,
+    _session_checkpoint_key,
+    _session_signature,
+    _sessions_root_id,
+    _update_ingest_summary,
 )
 from exocortex.codex_sessions import CodexSessionAdapter
 from exocortex.config import Settings
@@ -40,9 +52,13 @@ from exocortex.models import (
     KnowledgeScope,
     NoteMetadata,
     OperationalContext,
+    RecommendationLevel,
     ReflectionKnowledge,
     ResponseEnvelope,
+    ResponseStatus,
     SearchFeedback,
+    SearchFeedbackRelevance,
+    SearchFeedbackTag,
     SearchResult,
     SourceReference,
     VaultNote,
@@ -99,7 +115,7 @@ class BrainService:
         self.sanitizer = Sanitizer()
         self.gateway = GatewayClient(settings)
         self.labels = LabelRegistry(settings.state_dir / "taxonomy.json")
-        self._last_ingest_summary: dict[str, object] = {}
+        self._last_ingest_summary: dict[str, Any] = {}
 
     def initialize(self) -> None:
         """Create durable directories and Neo4j schema."""
@@ -142,7 +158,7 @@ class BrainService:
         )
 
     @traced("exocortex.extraction_canary")
-    def extraction_canary(self) -> dict[str, object]:
+    def extraction_canary(self) -> dict[str, Any]:
         """Validate one synthetic batch without persisting model output."""
         source_id = "codex-brain-canary"
         extracted = self.gateway.extract_batch(
@@ -273,10 +289,10 @@ class BrainService:
 
     def _ingest_sessions(
         self,
-        adapter: object,
+        adapter: Any,
         root: Path,
-        checkpoint_loader: object,
-        checkpoint_saver: object,
+        checkpoint_loader: Any,
+        checkpoint_saver: Any,
         extract: bool = True,
         only_closed: bool = False,
         max_llm_calls: int | None = None,
@@ -328,7 +344,7 @@ class BrainService:
             else:
                 pending_paths.append(path)
 
-        summary: dict[str, object] = {
+        summary: dict[str, Any] = {
             "status": "running",
             "source_available": root.exists(),
             "sessions_total": len(paths),
@@ -427,7 +443,7 @@ class BrainService:
             def persist_partial(
                 current_path: Path = path,
                 current_key: str = key,
-                current_record_state: dict[str, dict[str, object]] = record_state,
+                current_record_state: dict[str, dict[str, Any]] = record_state,
                 current_session_number: int = session_number,
                 current_records_count: int = len(records),
             ) -> None:
@@ -456,7 +472,7 @@ class BrainService:
                 items: list[tuple[int, SourceRecord, str, bool]],
                 current_session_number: int = session_number,
                 current_records: list[SourceRecord] = records,
-                current_record_state: dict[str, dict[str, object]] = record_state,
+                current_record_state: dict[str, dict[str, Any]] = record_state,
             ) -> None:
                 """Process one bounded extraction batch and checkpoint each item."""
                 nonlocal session_failed, stop_requested
@@ -679,7 +695,7 @@ class BrainService:
         self._supersede_legacy_session_notes()
         return results
 
-    def ingest_status(self) -> dict[str, object]:
+    def ingest_status(self) -> dict[str, Any]:
         """Return current Codex ingestion progress without calling the gateway."""
         root = Path(self.settings.codex_sessions_dir)
         adapter = CodexSessionAdapter(
@@ -798,7 +814,7 @@ class BrainService:
     ) -> ResponseEnvelope:
         """Store a memory and report Vault/index consistency explicitly."""
         note, index_error = self._remember(content, title, space_id, owner=owner)
-        status = "degraded" if index_error else "stored"
+        status: ResponseStatus = "degraded" if index_error else "stored"
         return ResponseEnvelope(
             status=status,
             method="remember",
@@ -849,8 +865,12 @@ class BrainService:
         note = self.vault.upsert_managed(metadata, managed_body)
         store = self._graph_store()
         if store is not None:
-            with contextlib.suppress(Exception):
-                store.upsert_note(note)
+            try:
+                with contextlib.suppress(Exception):
+                    store.upsert_note(note)
+            finally:
+                if hasattr(store, "close"):
+                    store.close()
         return note
 
     def get_intent(
@@ -899,8 +919,12 @@ class BrainService:
         updated = self.vault.upsert_managed(note.metadata, new_content)
         store = self._graph_store()
         if store is not None:
-            with contextlib.suppress(Exception):
-                store.upsert_note(updated)
+            try:
+                with contextlib.suppress(Exception):
+                    store.upsert_note(updated)
+            finally:
+                if hasattr(store, "close"):
+                    store.close()
         return updated
 
     def _remember(
@@ -1096,7 +1120,7 @@ class BrainService:
         self,
         mode: str | None = None,
         fuzzy_timeout_seconds: float | None = None,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         """Return deterministic canonical-vault repair candidates."""
         from exocortex.maintenance import repair_report
 
@@ -1110,7 +1134,7 @@ class BrainService:
         self,
         mode: str | None = None,
         fuzzy_timeout_seconds: float | None = None,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         """Backup and apply deterministic canonical-vault repairs."""
         from exocortex.maintenance import repair_apply
 
@@ -1120,7 +1144,7 @@ class BrainService:
             fuzzy_timeout_seconds=fuzzy_timeout_seconds,
         )
 
-    def repair_rollback(self, backup: Path) -> dict[str, object]:
+    def repair_rollback(self, backup: Path) -> dict[str, Any]:
         """Restore canonical data from an explicit repair backup."""
         from exocortex.maintenance import repair_rollback
 
@@ -1132,7 +1156,7 @@ class BrainService:
         resume: bool = True,
         process_all: bool = False,
         max_failures: int = 25,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         """Re-extract sanitized sources with a persistent checkpoint."""
         from exocortex.maintenance import backfill_sources
 
@@ -1149,7 +1173,7 @@ class BrainService:
         batch_size: int = 25,
         process_all: bool = False,
         max_failures: int = 25,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         """Retry only sources explicitly identified as extraction fallbacks."""
         from exocortex.maintenance import retry_fallback_sources
 
@@ -1303,6 +1327,7 @@ class BrainService:
             data = [
                 result for result in results if result.verification_status == "verified"
             ][:limit]
+        status: ResponseStatus
         if data:
             status = "degraded" if degraded else "ok"
         else:
@@ -1397,13 +1422,14 @@ class BrainService:
         if effective_allowed_spaces is None and space_id is not None:
             effective_allowed_spaces = [space_id]
 
+        store: Neo4jStore | None = None
         try:
-            with operation_span(
-                "exocortex.search.lexical",
-                {"brain.search.limit": 50},
-            ) as span:
-                store = self._graph_store()
-                try:
+            try:
+                with operation_span(
+                    "exocortex.search.lexical",
+                    {"brain.search.limit": 50},
+                ) as span:
+                    store = self._graph_store()
                     try:
                         graph_results = store.search_fulltext(
                             sanitized_query,
@@ -1417,63 +1443,65 @@ class BrainService:
                             space_id,
                             50,
                         )
-                finally:
-                    store.close()
-                lexical_results = graph_results
-                span.set_attribute(
-                    "brain.search.result_count",
-                    len(lexical_results),
-                )
-        except Exception:  # pylint: disable=broad-except
-            lexical_results = self._lexical_search(
-                sanitized_query,
-                space_id=space_id,
-                limit=50,
-                allowed_spaces=effective_allowed_spaces,
-            )
-            degraded = True
-
-        literal_query = _literal_anchor_query(analysis)
-        if not lexical_results or literal_query:
-            vault_results = self._lexical_search(
-                sanitized_query,
-                space_id=space_id,
-                limit=50,
-                allowed_spaces=effective_allowed_spaces,
-            )
-            known_ids = {result.note_id for result in lexical_results}
-            lexical_results.extend(
-                result for result in vault_results if result.note_id not in known_ids
-            )
-
-        if literal_query:
-            fallback_results = self._lexical_search(
-                literal_query,
-                space_id=space_id,
-                limit=50,
-                allowed_spaces=effective_allowed_spaces,
-            )
-            known_ids = {result.note_id for result in lexical_results}
-            lexical_results.extend(
-                result for result in fallback_results if result.note_id not in known_ids
-            )
-
-        try:
-            with operation_span(
-                "exocortex.search.semantic",
-                {
-                    "brain.search.limit": 50,
-                    "brain.search.embedding_timeout_seconds": (
-                        self.settings.search_embedding_timeout_seconds
-                    ),
-                },
-            ) as span:
-                query_embedding = self.gateway.embed(
+                    lexical_results = graph_results
+                    span.set_attribute(
+                        "brain.search.result_count",
+                        len(lexical_results),
+                    )
+            except Exception:  # pylint: disable=broad-except
+                lexical_results = self._lexical_search(
                     sanitized_query,
-                    timeout_seconds=self.settings.search_embedding_timeout_seconds,
+                    space_id=space_id,
+                    limit=50,
+                    allowed_spaces=effective_allowed_spaces,
                 )
-                store = self._graph_store()
-                try:
+                degraded = True
+
+            literal_query = _literal_anchor_query(analysis)
+            if not lexical_results or literal_query:
+                vault_results = self._lexical_search(
+                    sanitized_query,
+                    space_id=space_id,
+                    limit=50,
+                    allowed_spaces=effective_allowed_spaces,
+                )
+                known_ids = {result.note_id for result in lexical_results}
+                lexical_results.extend(
+                    result
+                    for result in vault_results
+                    if result.note_id not in known_ids
+                )
+
+            if literal_query:
+                fallback_results = self._lexical_search(
+                    literal_query,
+                    space_id=space_id,
+                    limit=50,
+                    allowed_spaces=effective_allowed_spaces,
+                )
+                known_ids = {result.note_id for result in lexical_results}
+                lexical_results.extend(
+                    result
+                    for result in fallback_results
+                    if result.note_id not in known_ids
+                )
+
+            try:
+                with operation_span(
+                    "exocortex.search.semantic",
+                    {
+                        "brain.search.limit": 50,
+                        "brain.search.embedding_timeout_seconds": (
+                            self.settings.search_embedding_timeout_seconds
+                        ),
+                    },
+                ) as span:
+                    query_embedding = self.gateway.embed(
+                        sanitized_query,
+                        timeout_seconds=self.settings.search_embedding_timeout_seconds,
+                    )
+                    if store is None:
+                        store = self._graph_store()
                     try:
                         semantic_results = store.search_vector(
                             query_embedding,
@@ -1487,14 +1515,15 @@ class BrainService:
                             space_id,
                             50,
                         )
-                finally:
-                    store.close()
-                span.set_attribute(
-                    "brain.search.result_count",
-                    len(semantic_results),
-                )
-        except Exception:  # pylint: disable=broad-except
-            degraded = True
+                    span.set_attribute(
+                        "brain.search.result_count",
+                        len(semantic_results),
+                    )
+            except Exception:  # pylint: disable=broad-except
+                degraded = True
+        finally:
+            if store is not None and hasattr(store, "close"):
+                store.close()
 
         if degraded:
             context_results = self._lexical_search(
@@ -1643,7 +1672,14 @@ class BrainService:
             )
         results.sort(
             key=lambda result: (
-                min(reference.occurred_on for reference in result.source_refs),
+                min(
+                    (
+                        reference.occurred_on
+                        for reference in result.source_refs
+                        if reference.occurred_on is not None
+                    ),
+                    default=start_on,
+                ),
                 result.note_id,
             )
         )
@@ -1692,7 +1728,9 @@ class BrainService:
             ]
             source_refs_with_dates += len(dated_refs)
             source_refs_in_range += sum(
-                start_on <= reference.occurred_on <= end_on for reference in dated_refs
+                reference.occurred_on is not None
+                and start_on <= reference.occurred_on <= end_on
+                for reference in dated_refs
             )
             if _dated_source_refs(note, start_on, end_on):
                 notes_in_range += 1
@@ -1968,12 +2006,12 @@ class BrainService:
         feedback = SearchFeedback(
             query=self.sanitizer.sanitize(query).text[:2000].strip(),
             note_ids=note_ids,
-            relevance=relevance,
+            relevance=cast(SearchFeedbackRelevance, relevance),
             reason=(
                 self.sanitizer.sanitize(reason).text[:1000].strip() if reason else ""
             ),
             space_id=space_id or self.settings.default_space,
-            tags=normalized_tags,
+            tags=cast(list[SearchFeedbackTag], normalized_tags),
         )
         feedback_path = self.settings.data_dir / "feedback" / "search.jsonl"
         feedback_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1999,7 +2037,7 @@ class BrainService:
         self,
         limit: int | None = None,
         space_id: str | None = None,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         """Consolidate changed experiences into evidence-backed workflows."""
         target_space = space_id or self.settings.default_space
         state = self._load_reflection_state()
@@ -2075,7 +2113,7 @@ class BrainService:
         record_reflection(len(candidates), accepted)
         return result
 
-    def learning_status(self) -> dict[str, object]:
+    def learning_status(self) -> dict[str, Any]:
         """Return non-sensitive reflection progress and active counts."""
         state = self._load_reflection_state()
         notes = list(self.vault.iter_notes(self.settings.default_space))
@@ -2252,10 +2290,10 @@ class BrainService:
         )
         temporary_path.replace(path)
 
-    def _load_antigravity_ingest_checkpoint(self, root: Path) -> dict[str, object]:
+    def _load_antigravity_ingest_checkpoint(self, root: Path) -> dict[str, Any]:
         """Load non-sensitive Antigravity ingestion progress."""
         path = self._antigravity_ingest_checkpoint_path(root)
-        default: dict[str, object] = {
+        default: dict[str, Any] = {
             "version": 2,
             "root_id": _sessions_root_id(root),
             "sessions": {},
@@ -2275,8 +2313,8 @@ class BrainService:
 
     def _persist_antigravity_ingest_progress(
         self,
-        checkpoint: dict[str, object],
-        summary: dict[str, object],
+        checkpoint: dict[str, Any],
+        summary: dict[str, Any],
     ) -> None:
         """Persist non-sensitive Antigravity ingestion state."""
         root_id = str(checkpoint.get("root_id") or "default")
@@ -2295,10 +2333,10 @@ class BrainService:
         root_id = _sessions_root_id(root)
         return self.settings.state_dir / f"antigravity-ingest-checkpoint-{root_id}.json"
 
-    def _load_codex_ingest_checkpoint(self, root: Path) -> dict[str, object]:
+    def _load_codex_ingest_checkpoint(self, root: Path) -> dict[str, Any]:
         """Load non-sensitive per-rollout ingestion progress."""
         path = self._codex_ingest_checkpoint_path(root)
-        default: dict[str, object] = {
+        default: dict[str, Any] = {
             "version": 2,
             "root_id": _sessions_root_id(root),
             "sessions": {},
@@ -2322,8 +2360,8 @@ class BrainService:
 
     def _persist_codex_ingest_progress(
         self,
-        checkpoint: dict[str, object],
-        summary: dict[str, object],
+        checkpoint: dict[str, Any],
+        summary: dict[str, Any],
     ) -> None:
         """Persist ingestion progress atomically after each completed session."""
         checkpoint["last_run"] = dict(summary)
@@ -3388,7 +3426,7 @@ def _search_result(note: VaultNote, score: float) -> SearchResult:
     )
 
 
-def _compact_search_result(result: SearchResult) -> dict[str, object]:
+def _compact_search_result(result: SearchResult) -> dict[str, Any]:
     """Return bounded metadata for non-authoritative search context."""
     return {
         "note_id": result.note_id,
@@ -3854,7 +3892,7 @@ def _recommendation_level(
     quality: float = 1.0,
     relevance: float = 1.0,
     actionability: float = 1.0,
-) -> str:
+) -> RecommendationLevel:
     """Map separate trust signals to the workflow interaction mode."""
     if relevance < 0.25 or quality < 0.40:
         return "deprioritize"
@@ -4068,16 +4106,16 @@ def _workflow_match(
         label_ratio = len(proposal_labels & labels) / len(union) if union else 0.0
         if title_ratio > best[1]:
             best = (workflow, title_ratio, label_ratio)
-    workflow, title_ratio, label_ratio = best
-    if workflow is None:
+    matched_workflow, title_ratio, label_ratio = best
+    if matched_workflow is None:
         return None, None
     if title_ratio >= 0.9 and (
         label_ratio >= 0.5
-        or proposal_title == _normalize_workflow_text(workflow.metadata.title)
+        or proposal_title == _normalize_workflow_text(matched_workflow.metadata.title)
     ):
-        return workflow, "strong"
+        return matched_workflow, "strong"
     if 0.8 <= title_ratio < 0.9:
-        return workflow, "ambiguous"
+        return matched_workflow, "ambiguous"
     return None, None
 
 
@@ -4096,7 +4134,7 @@ def _unique_source_refs(notes: list[VaultNote]) -> list[SourceReference]:
     return list(references.values())
 
 
-def _render_workflow(proposal: object) -> str:
+def _render_workflow(proposal: WorkflowProposal) -> str:
     """Render a validated workflow proposal as an Obsidian-readable note."""
     lines = ["## Summary", proposal.summary.strip()]
     if proposal.action is not None:
@@ -4191,131 +4229,3 @@ def _excerpt(content: str, tokens: set[str]) -> str:
 def _safe_error(error: Exception) -> str:
     """Return an error class only, preventing accidental credential leakage."""
     return error.__class__.__name__
-
-
-def _sessions_root_id(root: Path) -> str:
-    """Return a stable opaque identity for one mounted sessions root."""
-    return hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:16]
-
-
-def _session_checkpoint_key(root: Path, path: Path) -> str:
-    """Return a portable relative rollout key for the checkpoint."""
-    return path.relative_to(root).as_posix()
-
-
-def _session_signature(path: Path) -> dict[str, int] | None:
-    """Return file metadata used to detect a changed rollout."""
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return {"mtime_ns": stat.st_mtime_ns, "size": stat.st_size}
-
-
-def _checkpoint_matches(
-    entry: object,
-    signature: dict[str, int] | None,
-) -> bool:
-    """Return whether a checkpoint entry still describes the current file."""
-    if signature is None or not isinstance(entry, dict):
-        return False
-    return (
-        _checkpoint_entry_is_complete(entry)
-        and entry.get("mtime_ns") == signature["mtime_ns"]
-        and entry.get("size") == signature["size"]
-    )
-
-
-def _checkpoint_entry_is_complete(entry: object) -> bool:
-    """Return whether a checkpoint is complete without fallback records."""
-    if not isinstance(entry, dict) or entry.get("status") != "completed":
-        return False
-    return not any(
-        record.get("status") in {"fallback", "promoted_fallback"}
-        for record in _checkpoint_record_state(entry).values()
-    )
-
-
-def _checkpoint_record_state(entry: object) -> dict[str, dict[str, object]]:
-    """Return per-segment checkpoint state from a session entry."""
-    if not isinstance(entry, dict):
-        return {}
-    records = entry.get("records")
-    if not isinstance(records, dict):
-        return {}
-    return {
-        str(source_id): value
-        for source_id, value in records.items()
-        if isinstance(value, dict)
-    }
-
-
-def _checkpoint_record_matches(entry: object, content_hash: str) -> bool:
-    """Return whether a segment was completed with the current filter version."""
-    if not isinstance(entry, dict):
-        return False
-    return (
-        entry.get("content_hash") == content_hash
-        and entry.get("filter_version") == TRIVIAL_FILTER_VERSION
-        and entry.get("status")
-        in {
-            "already_indexed",
-            "extracted",
-            "promoted",
-            "promoted_quarantined",
-            "skipped_trivial",
-        }
-    )
-
-
-def _update_ingest_summary(summary: dict[str, object], status: str) -> None:
-    """Update aggregate counters for one ingestion result."""
-    if status == "failed":
-        summary["records_failed"] = int(summary["records_failed"]) + 1
-        return
-    summary["records_processed"] = int(summary["records_processed"]) + 1
-    if status == "already_indexed":
-        summary["already_indexed"] = int(summary["already_indexed"]) + 1
-    if status in {"extracted", "promoted", "promoted_quarantined"}:
-        summary["extracted"] = int(summary.get("extracted", 0)) + 1
-        summary["promoted"] = int(summary["promoted"]) + 1
-    if status in {"fallback", "promoted_fallback"}:
-        summary["fallback"] = int(summary["fallback"]) + 1
-
-
-def _note_fingerprint(note: VaultNote) -> str:
-    """Return a stable fingerprint for reflection-relevant note content."""
-    payload = {
-        "id": str(note.metadata.id),
-        "space_id": note.metadata.space_id,
-        "owner": note.metadata.owner,
-        "type": note.metadata.type,
-        "title": note.metadata.title,
-        "labels": _effective_labels(note),
-        "evidence_status": note.metadata.evidence_status,
-        "confidence": note.metadata.confidence,
-        "usage_count": note.metadata.usage_count,
-        "success_count": note.metadata.success_count,
-        "last_feedback_at": (
-            note.metadata.last_feedback_at.isoformat()
-            if note.metadata.last_feedback_at
-            else None
-        ),
-        "last_feedback_notes": note.metadata.last_feedback_notes,
-        "recommendation_state": note.metadata.recommendation_state,
-        "extraction_status": note.metadata.extraction_status,
-        "prompt_version": note.metadata.prompt_version,
-        "model_version": note.metadata.model_version,
-        "source_ids": sorted(reference.id for reference in note.metadata.source_refs),
-        "claims": [claim.model_dump(mode="json") for claim in note.metadata.claims],
-        "actions": [action.model_dump(mode="json") for action in _note_actions(note)],
-        "content": note.content,
-    }
-    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def _index_fingerprint(note: VaultNote, embed: bool, embedding_model: str) -> str:
-    """Include the projection mode in the incremental index fingerprint."""
-    mode = f"embedding:{embedding_model}" if embed else "lexical"
-    return f"{_note_fingerprint(note)}|{mode}"

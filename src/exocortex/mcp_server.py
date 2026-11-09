@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import hmac
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -16,7 +17,13 @@ from starlette.responses import HTMLResponse, JSONResponse
 
 from exocortex.config import Settings
 from exocortex.dashboard import get_dashboard_data, render_dashboard_html
-from exocortex.models import Claim, EvidenceSpan, ResponseEnvelope, VaultNote
+from exocortex.models import (
+    AnswerMode,
+    Claim,
+    EvidenceSpan,
+    ResponseEnvelope,
+    VaultNote,
+)
 from exocortex.service import BrainService
 from exocortex.spaces import (
     create_space as _create_space,
@@ -30,6 +37,37 @@ from exocortex.spaces import (
 from exocortex.spaces import (
     resolve_remember_space as _resolve_remember_space,
 )
+
+_SECURITY_HEADERS: dict[str, str] = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def _check_request_auth(request: Request, settings: Settings) -> JSONResponse | None:
+    """Return a 401 response when optional Bearer authentication fails."""
+    if settings.mcp_auth_token is None:
+        return None
+    expected = settings.mcp_auth_token.get_secret_value().strip()
+    if not expected:
+        return None
+    auth_header = request.headers.get("authorization", "")
+    prefix = "bearer "
+    if not auth_header.lower().startswith(prefix):
+        return JSONResponse(
+            {"error": "Unauthorized"},
+            status_code=401,
+            headers=_SECURITY_HEADERS,
+        )
+    provided = auth_header[len(prefix) :].strip()
+    if not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+        return JSONResponse(
+            {"error": "Unauthorized"},
+            status_code=401,
+            headers=_SECURITY_HEADERS,
+        )
+    return None
 
 
 def _display_note_with_claims(note: VaultNote) -> tuple[VaultNote, str]:
@@ -137,19 +175,31 @@ def create_server(settings: Settings | None = None) -> FastMCP:
     )
 
     @mcp.custom_route("/", methods=["GET"])
-    async def dashboard_root(request: Request) -> HTMLResponse:
+    async def dashboard_root(request: Request) -> HTMLResponse | JSONResponse:
         """Serve the ultra-lightweight dark-mode Exocortex dashboard."""
-        return HTMLResponse(render_dashboard_html(service))
+        auth_error = _check_request_auth(request, settings)
+        if auth_error is not None:
+            return auth_error
+        html = await asyncio.to_thread(render_dashboard_html, service)
+        return HTMLResponse(html, headers=_SECURITY_HEADERS)
 
     @mcp.custom_route("/dashboard", methods=["GET"])
-    async def dashboard_view(request: Request) -> HTMLResponse:
+    async def dashboard_view(request: Request) -> HTMLResponse | JSONResponse:
         """Serve the ultra-lightweight dark-mode Exocortex dashboard."""
-        return HTMLResponse(render_dashboard_html(service))
+        auth_error = _check_request_auth(request, settings)
+        if auth_error is not None:
+            return auth_error
+        html = await asyncio.to_thread(render_dashboard_html, service)
+        return HTMLResponse(html, headers=_SECURITY_HEADERS)
 
     @mcp.custom_route("/api/dashboard", methods=["GET"])
     async def api_dashboard(request: Request) -> JSONResponse:
         """Return real-time metrics and recent activity for the dashboard."""
-        return JSONResponse(get_dashboard_data(service))
+        auth_error = _check_request_auth(request, settings)
+        if auth_error is not None:
+            return auth_error
+        data = await asyncio.to_thread(get_dashboard_data, service)
+        return JSONResponse(data, headers=_SECURITY_HEADERS)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -177,7 +227,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             project_id=project_id,
             repository_id=repository_id,
             limit=limit,
-            answer_mode=answer_mode,
+            answer_mode=cast(AnswerMode, answer_mode),
             include_candidates=include_candidates,
             allowed_spaces=allowed_spaces,
         )
@@ -599,8 +649,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
                 space_type=space_type,
                 description=description,
             )
-            store = service._graph_store()
-            if store is not None:
+            if hasattr(service, "sync"):
                 with contextlib.suppress(Exception):
                     service.sync(embed=False)
             return ResponseEnvelope(

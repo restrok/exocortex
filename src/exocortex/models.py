@@ -250,7 +250,7 @@ class ExtractedKnowledge(BaseModel):
             "facts": "fact",
             "links": "label",
             "labels": "label",
-        }[info.field_name]
+        }[info.field_name or "labels"]
         items: list[str] = []
         for item in value:
             if isinstance(item, str):

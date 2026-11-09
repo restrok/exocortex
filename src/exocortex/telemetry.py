@@ -220,7 +220,7 @@ def _metric_instruments() -> _MetricInstruments:
     return _INSTRUMENTS
 
 
-def _as_int(value: object) -> int:
+def _as_int(value: Any) -> int:
     """Convert persisted summary values to a safe non-negative integer."""
     try:
         return max(0, int(value or 0))

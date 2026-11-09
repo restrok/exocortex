@@ -158,3 +158,29 @@ def test_purge_expired_tmp_assets(asset_store: AssetStore, tmp_path: Path) -> No
     # Verify purged asset is no longer in index.db
     assert asset_store.get_asset(expired_record.asset_id) is None
     assert asset_store.get_asset(valid_record.asset_id) is not None
+
+
+def test_register_file_rejects_path_traversal(
+    asset_store: AssetStore, tmp_path: Path
+) -> None:
+    """Verify path traversal in relative_subpath or category is blocked early."""
+    source_file = tmp_path / "payload.txt"
+    source_file.write_text("sensitive data", encoding="utf-8")
+    outside_dir = tmp_path / "outside"
+
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        asset_store.register_file(
+            source_path=source_file,
+            category="inbox",
+            relative_subpath="../../outside",
+        )
+
+    assert not outside_dir.exists()
+
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        asset_store.register_file(
+            source_path=source_file,
+            category="../outside",
+        )
+
+    assert not outside_dir.exists()
