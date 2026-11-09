@@ -413,3 +413,69 @@ def test_mcp_tools_propagate_user_id_and_filter_privacies(
     assert mercedes_own["status"] == "ok"
     shared_by_mercedes = call("brain_get", note_id="shared-note", user_id="mercedes")
     assert shared_by_mercedes["status"] == "ok"
+
+
+def test_mcp_custom_routes_security_headers_and_optional_bearer_auth(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Dashboard routes emit security headers and enforce optional Bearer auth."""
+    import httpx
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(
+        mcp_server,
+        "render_dashboard_html",
+        lambda service: "<html><body>Exocortex</body></html>",
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_dashboard_data",
+        lambda service: {"status": "healthy"},
+    )
+
+    async def _run_checks() -> None:
+        # 1. Open access when BRAIN_MCP_AUTH_TOKEN is unset
+        open_settings = make_settings(tmp_path / "brain-open")
+        open_server = create_server(open_settings)
+        open_transport = httpx.ASGITransport(app=open_server.streamable_http_app())
+        async with httpx.AsyncClient(
+            transport=open_transport,
+            base_url="http://testserver",
+        ) as open_client:
+            for route in ("/", "/dashboard", "/api/dashboard"):
+                resp = await open_client.get(route)
+                assert resp.status_code == 200
+                assert resp.headers["X-Content-Type-Options"] == "nosniff"
+                assert resp.headers["X-Frame-Options"] == "DENY"
+                assert resp.headers["Referrer-Policy"] == "no-referrer"
+
+        # 2. Protected access when BRAIN_MCP_AUTH_TOKEN is set
+        auth_settings = make_settings(tmp_path / "brain-auth")
+        auth_settings.mcp_auth_token = SecretStr("homelab-secret-token-99")
+        auth_server = create_server(auth_settings)
+        auth_transport = httpx.ASGITransport(app=auth_server.streamable_http_app())
+        async with httpx.AsyncClient(
+            transport=auth_transport,
+            base_url="http://testserver",
+        ) as auth_client:
+            unauth_resp = await auth_client.get("/api/dashboard")
+            assert unauth_resp.status_code == 401
+            assert unauth_resp.json() == {"error": "Unauthorized"}
+            assert unauth_resp.headers["X-Frame-Options"] == "DENY"
+
+            wrong_resp = await auth_client.get(
+                "/dashboard",
+                headers={"Authorization": "Bearer wrong-token"},
+            )
+            assert wrong_resp.status_code == 401
+
+            ok_resp = await auth_client.get(
+                "/api/dashboard",
+                headers={"Authorization": "Bearer homelab-secret-token-99"},
+            )
+            assert ok_resp.status_code == 200
+            assert ok_resp.json() == {"status": "healthy"}
+            assert ok_resp.headers["X-Content-Type-Options"] == "nosniff"
+
+    asyncio.run(_run_checks())

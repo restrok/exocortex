@@ -211,6 +211,10 @@ class Settings(BaseSettings):
     neo4j_password: SecretStr = Field(validation_alias="NEO4J_PASSWORD")
     mcp_host: str = Field(default="127.0.0.1", validation_alias="BRAIN_MCP_HOST")
     mcp_port: int = Field(default=8765, validation_alias="BRAIN_MCP_PORT")
+    mcp_auth_token: SecretStr | None = Field(
+        default=None,
+        validation_alias="BRAIN_MCP_AUTH_TOKEN",
+    )
     sync_interval_seconds: int = Field(
         default=86400,
         validation_alias="BRAIN_SYNC_INTERVAL_SECONDS",
