@@ -61,7 +61,7 @@ jobs:
           EOF
 
   lint:
-    name: Lint, Typecheck & Security
+    name: Lint name: Lint, Typecheck & Security Style
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
