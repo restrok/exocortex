@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import frontmatter
 
@@ -22,6 +23,8 @@ class Vault:
     def __init__(self, root: Path) -> None:
         """Initialize a vault rooted at the canonical Vault directory."""
         self._root = root
+        self._path_cache: dict[Path, tuple[int, int, VaultNote]] = {}
+        self._id_to_path: dict[str, Path] = {}
 
     def ensure_exists(self) -> None:
         """Create the Vault directory."""
@@ -52,8 +55,17 @@ class Vault:
 
     def get(self, note_id: str) -> VaultNote | None:
         """Find one note by its stable identifier."""
+        target_id = str(note_id)
+        cached_path = self._id_to_path.get(target_id)
+        if cached_path is not None:
+            if cached_path.exists():
+                note = self._read_path(cached_path)
+                if note is not None and str(note.metadata.id) == target_id:
+                    return note
+            self._id_to_path.pop(target_id, None)
+
         for note in self.iter_notes():
-            if str(note.metadata.id) == note_id:
+            if str(note.metadata.id) == target_id:
                 return note
         return None
 
@@ -118,6 +130,7 @@ class Vault:
                 else:
                     desired_path.parent.mkdir(parents=True, exist_ok=True)
                     path.replace(desired_path)
+                    self._path_cache.pop(path, None)
                     path = desired_path
         else:
             content = _managed_block(managed_content)
@@ -141,7 +154,7 @@ class Vault:
         self,
         source_id: str,
         content: str,
-        metadata: dict[str, object],
+        metadata: dict[str, Any],
     ) -> Path:
         """Persist a review candidate outside the canonical vault."""
         review_root = self._root.parent / "Sources" / "Review"
@@ -167,15 +180,36 @@ class Vault:
     def _read_path(self, path: Path) -> VaultNote | None:
         """Parse one Markdown file, skipping non-managed notes with invalid metadata."""
         try:
+            stat = path.stat()
+        except OSError:
+            self._path_cache.pop(path, None)
+            return None
+
+        cached = self._path_cache.get(path)
+        if (
+            cached is not None
+            and cached[0] == stat.st_mtime_ns
+            and cached[1] == stat.st_size
+        ):
+            note = cached[2]
+            self._id_to_path[str(note.metadata.id)] = path
+            return note.model_copy(deep=True)
+
+        try:
             post = frontmatter.load(path)
             metadata = NoteMetadata.model_validate(post.metadata)
         except (OSError, ValueError):
+            self._path_cache.pop(path, None)
             return None
-        return VaultNote(
+
+        note = VaultNote(
             metadata=metadata,
             content=post.content,
             path=self._relative_path(path),
         )
+        self._path_cache[path] = (stat.st_mtime_ns, stat.st_size, note)
+        self._id_to_path[str(metadata.id)] = path
+        return note.model_copy(deep=True)
 
     def _write(self, path: Path, metadata: NoteMetadata, content: str) -> None:
         """Serialize note metadata and content atomically enough for local writes."""
@@ -184,6 +218,17 @@ class Vault:
         temporary_path = path.with_suffix(".md.tmp")
         temporary_path.write_text(frontmatter.dumps(post), encoding="utf-8")
         temporary_path.replace(path)
+        try:
+            stat = path.stat()
+            cached_note = VaultNote(
+                metadata=metadata.model_copy(deep=True),
+                content=content,
+                path=self._relative_path(path),
+            )
+            self._path_cache[path] = (stat.st_mtime_ns, stat.st_size, cached_note)
+            self._id_to_path[str(metadata.id)] = path
+        except OSError:
+            self._path_cache.pop(path, None)
 
     def _new_path(self, metadata: NoteMetadata) -> Path:
         """Return the deterministic location for a new note."""
@@ -196,7 +241,11 @@ class Vault:
         return str(path.relative_to(self._root.parent))
 
     def _absolute_path(self, relative_path: str) -> Path:
-        """Resolve a stored data-relative note path."""
+        """Resolve a stored data-relative note path safely inside the data root."""
+        base_root = self._root.parent.resolve()
+        candidate = (self._root.parent / relative_path).resolve()
+        if not candidate.is_relative_to(base_root):
+            raise ValueError(f"Path traversal detected: {relative_path}")
         return self._root.parent / relative_path
 
 

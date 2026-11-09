@@ -5,19 +5,51 @@ from __future__ import annotations
 
 import collections
 import json
+import time
+import weakref
 from typing import Any
 
 from exocortex.service import BrainService
 
+_DOCTOR_CACHE_TTL_SECONDS = 5.0
+_DOCTOR_CACHE: dict[int, tuple[weakref.ReferenceType[Any], float, Any]] = {}
 
-def get_dashboard_data(service: BrainService) -> dict[str, Any]:
+
+def _get_cached_doctor(service: BrainService) -> Any:
+    """Return a short-lived cached doctor report keyed by service instance."""
+    key = id(service)
+    now = time.monotonic()
+    cached = _DOCTOR_CACHE.get(key)
+    if cached is not None:
+        ref, expires_at, report = cached
+        if ref() is service and now < expires_at:
+            return report
+    report = service.doctor()
+    try:
+        ref = weakref.ref(service)
+        _DOCTOR_CACHE[key] = (ref, now + _DOCTOR_CACHE_TTL_SECONDS, report)
+    except TypeError:
+        pass
+    return report
+
+
+def get_dashboard_data(
+    service: BrainService,
+    *,
+    include_personal: bool = False,
+) -> dict[str, Any]:
     """Extract real-time vault metrics, component health, and recent memories."""
     notes = list(service.vault.iter_notes())
     by_type = dict(collections.Counter(n.metadata.type for n in notes))
     by_state = dict(collections.Counter(n.metadata.recommendation_state for n in notes))
 
+    visible_notes = (
+        notes
+        if include_personal
+        else [n for n in notes if not n.metadata.space_id.startswith("personal")]
+    )
     sorted_notes = sorted(
-        notes,
+        visible_notes,
         key=lambda n: n.metadata.updated_at or n.metadata.created_at,
         reverse=True,
     )
@@ -45,7 +77,7 @@ def get_dashboard_data(service: BrainService) -> dict[str, Any]:
         for n in sorted_notes[:40]
     ]
 
-    doctor_report = service.doctor()
+    doctor_report = _get_cached_doctor(service)
     is_healthy = (
         doctor_report.vault == "ok"
         and doctor_report.gateway == "ok"
@@ -94,7 +126,12 @@ def get_dashboard_data(service: BrainService) -> dict[str, Any]:
 def render_dashboard_html(service: BrainService) -> str:
     """Generate modern, dark-mode standalone HTML with real-time auto-refresh."""
     initial_data = get_dashboard_data(service)
-    initial_json = json.dumps(initial_data)
+    initial_json = (
+        json.dumps(initial_data)
+        .replace("</", "<\\/")
+        .replace("<script", "<\\u0073cript")
+        .replace("<SCRIPT", "<\\u0053CRIPT")
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
