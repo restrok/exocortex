@@ -1194,7 +1194,7 @@ def _canonical_evidence_precision(value: object) -> str:
     )
 
 
-def _validation_error_summary(error: ValueError) -> str:
+def _validation_error_summary(error: Exception) -> str:
     """Return validation paths and types without echoing model-provided values."""
     errors_method = getattr(error, "errors", None)
     if not callable(errors_method):

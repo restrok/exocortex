@@ -26,6 +26,7 @@ from exocortex.models import (
     ExtractedKnowledge,
     ExtractionStatus,
     NoteMetadata,
+    RecommendationState,
     SanitizedContent,
     SourceReference,
     VaultNote,
@@ -212,7 +213,7 @@ class Ingestor:
             )
 
         status = "promoted"
-        extraction_status = "extracted" if extract else "manual"
+        extraction_status: ExtractionStatus = "extracted" if extract else "manual"
         try:
             knowledge = self._extract(
                 record,
@@ -343,7 +344,7 @@ class Ingestor:
         for prepared in candidates:
             knowledge = knowledge_by_source.get(prepared.source_id)
             status = "promoted"
-            extraction_status = "extracted"
+            extraction_status: ExtractionStatus = "extracted"
             if knowledge is None:
                 if not allow_fallback:
                     results_by_source[prepared.source_id] = IngestResult(
@@ -389,6 +390,8 @@ class Ingestor:
         timeout_seconds: float | None,
     ) -> dict[str, ExtractedKnowledge]:
         """Call a production gateway with a bounded deadline when supported."""
+        if self._gateway is None:
+            raise GatewayError("Gateway client is not configured.")
         if isinstance(self._gateway, GatewayClient):
             return self._gateway.extract_batch(
                 sources,
@@ -999,7 +1002,7 @@ def _event_range_is_valid(
 def _recommendation_state(
     knowledge: ExtractedKnowledge,
     reference: SourceReference | None = None,
-) -> str:
+) -> RecommendationState:
     """Classify extracted knowledge for ranking and workflow eligibility."""
     is_direct_memory = reference is not None and (
         (reference.locator and "brain_remember" in reference.locator)

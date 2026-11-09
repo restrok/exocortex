@@ -9,12 +9,12 @@ import re
 import shutil
 import tarfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import frontmatter
 import httpx
@@ -22,7 +22,7 @@ import httpx
 from exocortex.codex_sessions import CodexSessionAdapter
 from exocortex.gateway import EXTRACTION_PROMPT_VERSION, GatewayError
 from exocortex.ingest import SourceRecord
-from exocortex.models import VaultNote
+from exocortex.models import RecommendationState, VaultNote
 
 if TYPE_CHECKING:
     from exocortex.service import BrainService
@@ -35,7 +35,7 @@ def repair_report(
     service: BrainService,
     mode: str | None = None,
     fuzzy_timeout_seconds: float | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Return deterministic path, state, and duplicate repair candidates."""
     effective_mode = mode or getattr(service.settings, "repair_mode", "daily")
     fuzzy = effective_mode == "full"
@@ -86,7 +86,7 @@ def repair_apply(
     service: BrainService,
     mode: str | None = None,
     fuzzy_timeout_seconds: float | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Backup and apply deterministic repairs without deleting ambiguous notes."""
     report = repair_report(
         service, mode=mode, fuzzy_timeout_seconds=fuzzy_timeout_seconds
@@ -176,7 +176,7 @@ def repair_apply(
     }
 
 
-def repair_rollback(service: BrainService, backup: Path) -> dict[str, object]:
+def repair_rollback(service: BrainService, backup: Path) -> dict[str, Any]:
     """Restore Vault and sanitized sources from one explicit backup."""
     backup_root = (service.settings.data_dir / "backups").resolve()
     backup_path = backup.resolve()
@@ -207,7 +207,7 @@ def backfill_sources(
     resume: bool = True,
     process_all: bool = False,
     max_failures: int = 25,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Re-extract sanitized sources in resumable batches."""
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
@@ -373,7 +373,7 @@ def backfill_sources(
         )
         if stopped:
             break
-    result: dict[str, object] = {
+    result: dict[str, Any] = {
         "status": (
             "completed"
             if not stopped and not failed and len(completed) == len(paths)
@@ -403,7 +403,7 @@ def retry_fallback_sources(
     batch_size: int = 1,
     process_all: bool = False,
     max_failures: int = 25,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Retry only notes proven to originate from deterministic fallbacks."""
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
@@ -515,7 +515,7 @@ def retry_fallback_sources(
 
     _mark_fallback_checkpoint_retried(service, extracted_ids)
     remaining = len(pending_ids) - len(extracted_ids)
-    result = {
+    result: dict[str, Any] = {
         "status": "completed" if remaining == 0 else "partial",
         "identified": len(source_ids),
         "selected": len(selected_ids),
@@ -560,7 +560,7 @@ def _write_backfill_checkpoint(
 
 def _source_is_current(
     indexed_source: tuple[VaultNote, str] | None,
-    metadata: dict[str, object],
+    metadata: dict[str, Any],
 ) -> bool:
     """Return whether a source already has a current canonical extraction."""
     if indexed_source is None:
@@ -706,7 +706,7 @@ def _mark_fallback_checkpoint_retried(
         temporary_path.replace(path)
 
 
-def _desired_state(note: object) -> str:
+def _desired_state(note: VaultNote) -> RecommendationState:
     """Return the safe state for a note with incomplete trust evidence."""
     metadata = note.metadata
     if metadata.recommendation_state == "quarantined":
@@ -742,7 +742,7 @@ def _desired_state(note: object) -> str:
     return "active"
 
 
-def _metadata_needs_sanitization(service: BrainService, note: object) -> bool:
+def _metadata_needs_sanitization(service: BrainService, note: VaultNote) -> bool:
     """Return whether visible metadata contains unsafe text."""
     metadata = note.metadata
     if _safe_text(
@@ -767,7 +767,7 @@ def _metadata_needs_sanitization(service: BrainService, note: object) -> bool:
     )
 
 
-def _sanitize_note_metadata(service: BrainService, note: object) -> bool:
+def _sanitize_note_metadata(service: BrainService, note: VaultNote) -> bool:
     """Sanitize visible legacy metadata and flag injection-like values."""
     metadata = note.metadata
     changed = False
@@ -824,14 +824,14 @@ def _safe_identifier_text(service: BrainService, value: str) -> str:
     )
 
 
-def _duplicate_workflows(notes: list[object]) -> list[dict[str, str]]:
+def _duplicate_workflows(notes: Sequence[VaultNote]) -> list[dict[str, str]]:
     """Find conservative duplicates among workflows for compatibility."""
     return _duplicate_notes(notes, note_types={"workflow"}, fuzzy=True)
 
 
 @dataclass
 class _NoteProfile:
-    note: object
+    note: VaultNote
     key: str
     norm_title: str
     title_len: int
@@ -839,13 +839,13 @@ class _NoteProfile:
 
 
 def _duplicate_notes(
-    notes: list[object],
+    notes: Sequence[VaultNote],
     note_types: set[str] | None = None,
     fuzzy: bool = True,
     timeout_seconds: float | None = 15.0,
 ) -> list[dict[str, str]]:
     """Find exact duplicates and optionally quarantine ambiguous near-duplicates."""
-    canonical: dict[str, object] = {}
+    canonical: dict[str, Any] = {}
     duplicates: list[dict[str, str]] = []
     superseded_ids: set[str] = set()
 
@@ -973,7 +973,7 @@ def _duplicate_notes(
     return duplicates
 
 
-def _duplicate_key(note: object) -> str:
+def _duplicate_key(note: VaultNote) -> str:
     """Build a conservative key from type, title, scope, and content."""
     metadata = note.metadata
     normalized_content = re.sub(r"\s+", " ", note.content.lower()).strip()
@@ -991,7 +991,7 @@ def _duplicate_key(note: object) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _merge_duplicate_metadata(canonical: object, duplicate: object) -> None:
+def _merge_duplicate_metadata(canonical: VaultNote, duplicate: VaultNote) -> None:
     """Merge provenance and evidence before superseding a duplicate note."""
     canonical.metadata.source_refs = _unique_items(
         [*canonical.metadata.source_refs, *duplicate.metadata.source_refs],
@@ -1016,12 +1016,12 @@ def _merge_duplicate_metadata(canonical: object, duplicate: object) -> None:
     )
 
 
-def _unique_items(
-    items: list[object],
-    key: Callable[[object], object],
-) -> list[object]:
+def _unique_items[T](
+    items: Sequence[T],
+    key: Callable[[T], object],
+) -> list[T]:
     """Deduplicate model objects while preserving first-seen order."""
-    unique: list[object] = []
+    unique: list[T] = []
     seen: set[object] = set()
     for item in items:
         item_key = key(item)
@@ -1037,7 +1037,7 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
 
 
-def _create_backup(service: BrainService, report: dict[str, object]) -> Path:
+def _create_backup(service: BrainService, report: dict[str, Any]) -> Path:
     """Create a sanitized backup before any repair mutation."""
     output_dir = service.settings.data_dir / "backups"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1068,7 +1068,7 @@ def _vault_hashes(service: BrainService) -> dict[str, str]:
     return hashes
 
 
-def _read_checkpoint(path: Path) -> dict[str, object]:
+def _read_checkpoint(path: Path) -> dict[str, Any]:
     """Read a non-sensitive backfill checkpoint."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
